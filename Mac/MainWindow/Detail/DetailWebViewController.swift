@@ -15,6 +15,7 @@ import Articles
 @MainActor protocol DetailWebViewControllerDelegate: AnyObject {
 	func mouseDidEnter(_: DetailWebViewController, link: String)
 	func mouseDidExit(_: DetailWebViewController)
+    func detailWebViewControllerDidFinishLoad(_: DetailWebViewController)
 }
 
 struct AIPhrase: Decodable {
@@ -390,15 +391,27 @@ extension DetailWebViewController {
         (function() {
             var nodes = document.querySelectorAll('p, li, blockquote');
             var result = [];
+            
+            // Regex for checking if text is just a URL
+            var urlRegex = /^(https?:\\/\\/[^\\s]+)$/i;
+
             for (var i = 0; i < nodes.length; i++) {
                 var node = nodes[i];
                 if (!node.id) {
                     node.id = 'ai-p-' + i + '-' + Date.now();
                 }
                 var text = node.innerText.trim();
-                if (text.length > 10) { // arbitrary filter too short texts
-                    result.push({id: node.id, text: text});
-                }
+                
+                // Skip if empty or too short
+                if (text.length <= 10) continue;
+                
+                // Skip if it looks like a raw URL
+                if (urlRegex.test(text)) continue;
+
+                // Skip if it looks like code (often inside pre/code blocks, but selector excludes pre, so maybe okay)
+                // But p tags might contain code.
+                
+                result.push({id: node.id, text: text});
             }
             return result;
         })();

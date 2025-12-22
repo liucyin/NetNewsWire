@@ -132,6 +132,9 @@ final class AIPreferencesViewController: NSViewController {
         tv.isRichText = false
         tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         tv.delegate = self
+        tv.isEditable = true
+        tv.isSelectable = true
+        tv.allowsUndo = true
         return tv
     }()
     
@@ -155,6 +158,9 @@ final class AIPreferencesViewController: NSViewController {
         tv.isRichText = false
         tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         tv.delegate = self
+        tv.isEditable = true
+        tv.isSelectable = true
+        tv.allowsUndo = true
         return tv
     }()
 

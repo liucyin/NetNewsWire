@@ -102,7 +102,7 @@ final class AISettings: ObservableObject {
     }
     
     var summaryPrompt: String {
-        get { defaults.string(forKey: Keys.aiSummaryPrompt) ?? "Please summarize the following article in a concise manner:" }
+        get { defaults.string(forKey: Keys.aiSummaryPrompt) ?? "Please summarize the following article in a concise manner. Output your response as a single HTML snippet (using <b>, <i>, <br> tags) suitable for direct injection into a div. Do NOT use Markdown (no #, *, etc). Do NOT translate URLs or code blocks." }
         set {
             defaults.set(newValue, forKey: Keys.aiSummaryPrompt)
             objectWillChange.send()
@@ -110,7 +110,7 @@ final class AISettings: ObservableObject {
     }
     
     var translationPrompt: String {
-        get { defaults.string(forKey: Keys.aiTranslationPrompt) ?? "Please translate the following article to %TARGET_LANGUAGE%. Maintain the original tone and formatting:" }
+        get { defaults.string(forKey: Keys.aiTranslationPrompt) ?? "Please translate the following text to %TARGET_LANGUAGE%. Maintain the original tone. Output your response as a single HTML snippet (using <b>, <i>, <br> tags). Do NOT use Markdown. Do NOT translate URLs, code blocks, or technical terms that should remain in English." }
         set {
             defaults.set(newValue, forKey: Keys.aiTranslationPrompt)
             objectWillChange.send()

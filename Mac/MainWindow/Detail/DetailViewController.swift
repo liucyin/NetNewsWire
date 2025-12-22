@@ -156,8 +156,63 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 }
 
 // MARK: - DetailWebViewControllerDelegate
+import NaturalLanguage
 
 extension DetailViewController: DetailWebViewControllerDelegate {
+    
+    func detailWebViewControllerDidFinishLoad(_ detailWebViewController: DetailWebViewController) {
+        // Auto-translate logic
+        guard AISettings.shared.isEnabled, AISettings.shared.autoTranslate,
+              detailWebViewController === currentWebViewController else { return }
+        
+        guard let article = detailWebViewController.article else { return }
+        
+        // Use article content (summary or text) for language detection
+        let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+        guard !textSample.isEmpty else { return }
+        
+        // Simple heuristic: Take first 500 chars for detection
+        let sample = String(textSample.prefix(500))
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(sample)
+        
+        guard let dominantLang = recognizer.dominantLanguage else { return }
+        
+        let targetLang = AISettings.shared.outputLanguage
+        
+        // Basic mapping. NLLanguage uses ISO codes (en, zh, etc).
+        // Settings uses full names "English", "Chinese", etc.
+        // We need a mapper.
+        
+        let targetIso = isoCode(for: targetLang)
+        
+        // If detected language is NOT the target language (and confidence is high contextually), translate.
+        // We assume article is in a single language.
+        
+        // Note: dominantLang.rawValue returns "en", "zh-Hans", etc.
+        let detectedIso = dominantLang.rawValue
+        
+        // Check if detected starts with target (e.g. en-US starts with en)
+        if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
+            Task {
+                await performTranslation()
+            }
+        }
+    }
+    
+    private func isoCode(for languageName: String) -> String {
+        switch languageName {
+        case "English": return "en"
+        case "Chinese": return "zh"
+        case "Japanese": return "ja"
+        case "French": return "fr"
+        case "German": return "de"
+        case "Spanish": return "es"
+        case "Korean": return "ko"
+        case "Russian": return "ru"
+        default: return "en"
+        }
+    }
 
 	func mouseDidEnter(_ detailWebViewController: DetailWebViewController, link: String) {
 		guard !link.isEmpty, detailWebViewController === currentWebViewController else {
