@@ -1,6 +1,7 @@
 
 import Foundation
 
+@MainActor
 final class AICacheManager {
     static let shared = AICacheManager()
     
@@ -44,25 +45,27 @@ final class AICacheManager {
         return titleTranslationCache[articleID]
     }
     
-    @MainActor
     func fetchOrTranslateTitle(articleID: String, title: String, targetLang: String) async throws -> String {
+        print("AICache: Fetching Title for \(articleID.prefix(8))...")
         // 1. Check persistent cache
         if let cached = getTitleTranslation(for: articleID) {
+            print("AICache: Found cached title for \(articleID.prefix(8))")
             return cached
         }
         
         // 2. Check in-flight task
         if let existingTask = activeTitleTasks[articleID] {
+            print("AICache: Joining inflight title task for \(articleID.prefix(8))")
             return try await existingTask.value
         }
         
         // 3. Create new task
+        print("AICache: Starting new title task for \(articleID.prefix(8))")
         let task = Task {
             let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
-            // Save to cache (on MainActor to be safe with this non-actor class)
-            await MainActor.run {
-                self.saveTitleTranslation(translated, for: articleID)
-            }
+            // Save to cache (Already on MainActor context due to class isolation)
+            self.saveTitleTranslation(translated, for: articleID)
+            print("AICache: Saved title for \(articleID.prefix(8))")
             return translated
         }
         
@@ -70,15 +73,23 @@ final class AICacheManager {
         
         do {
             let result = try await task.value
-            activeTitleTasks[articleID] = nil
+            if activeTitleTasks[articleID] == task {
+                activeTitleTasks[articleID] = nil
+            }
             return result
         } catch {
-            activeTitleTasks[articleID] = nil
+            print("AICache: Title task failed for \(articleID.prefix(8)): \(error)")
+            if activeTitleTasks[articleID] == task {
+                activeTitleTasks[articleID] = nil
+            }
             throw error
         }
     }
     
     func saveTitleTranslation(_ text: String, for articleID: String) {
+        titleTranslationCache[articleID] = text
+        defaults.set(titleTranslationCache, forKey: titleTranslationKey)
+    }
         titleTranslationCache[articleID] = text
         defaults.set(titleTranslationCache, forKey: titleTranslationKey)
     }
