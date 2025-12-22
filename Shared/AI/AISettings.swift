@@ -4,6 +4,12 @@ import Foundation
 final class AISettings: ObservableObject {
     static let shared = AISettings()
     private let defaults = UserDefaults.standard
+    
+    enum AIUsage {
+        case general
+        case summary
+        case translation
+    }
 
     struct Keys {
         static let aiEnabled = "aiEnabled"
@@ -88,6 +94,24 @@ final class AISettings: ObservableObject {
             objectWillChange.send()
         }
     }
+    
+    var summaryApiKey: String {
+        get { defaults.string(forKey: "aiSummaryApiKey") ?? "" }
+        set { defaults.set(newValue, forKey: "aiSummaryApiKey"); objectWillChange.send() }
+    }
+    
+    var translationApiKey: String {
+        get { defaults.string(forKey: "aiTranslationApiKey") ?? "" }
+        set { defaults.set(newValue, forKey: "aiTranslationApiKey"); objectWillChange.send() }
+    }
+    
+    func getApiKey(for usage: AIUsage) -> String {
+        switch usage {
+        case .summary: return summaryApiKey.isEmpty ? apiKey : summaryApiKey
+        case .translation: return translationApiKey.isEmpty ? apiKey : translationApiKey
+        case .general: return apiKey
+        }
+    }
 
     // Helper to get QPS as double
     var qps: Double {
@@ -102,7 +126,7 @@ final class AISettings: ObservableObject {
     }
     
     var summaryPrompt: String {
-        get { defaults.string(forKey: Keys.aiSummaryPrompt) ?? "Please summarize the following article in a concise manner. Output your response as a single HTML snippet (using <b>, <i>, <br> tags) suitable for direct injection into a div. Do NOT use Markdown (no #, *, etc). Do NOT translate URLs or code blocks." }
+        get { defaults.string(forKey: Keys.aiSummaryPrompt) ?? "Please summarize the following article in a concise manner. Use Markdown for formatting (e.g. **bold**, *italic*, ### Headers, - Lists). Do NOT translate URLs or code blocks." }
         set {
             defaults.set(newValue, forKey: Keys.aiSummaryPrompt)
             objectWillChange.send()

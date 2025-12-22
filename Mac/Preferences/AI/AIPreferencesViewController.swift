@@ -242,6 +242,15 @@ final class AIPreferencesViewController: NSViewController {
         ])
     }
     
+    private lazy var summaryApiKeyField: NSSecureTextField = {
+        let field = NSSecureTextField()
+        field.placeholderString = "Optional: Independent API Key"
+        field.stringValue = settings.summaryApiKey
+        field.target = self
+        field.action = #selector(summaryApiKeyChanged(_:))
+        return field
+    }()
+
     private func setupSummaryUI(in view: NSView) {
         let label = NSTextField(labelWithString: "Summary System Prompt:")
         let scrollView = NSScrollView()
@@ -249,11 +258,15 @@ final class AIPreferencesViewController: NSViewController {
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .bezelBorder
         
+        let apiKeyStack = NSStackView(views: [NSTextField(labelWithString: "API Key (Optional):"), summaryApiKeyField])
+        apiKeyStack.spacing = 8
+        apiKeyStack.orientation = .horizontal
+        
         let headerStack = NSStackView(views: [label, resetSummaryButton])
         headerStack.distribution = .fillProportionally
         headerStack.spacing = 8
         
-        let stack = NSStackView(views: [headerStack, scrollView])
+        let stack = NSStackView(views: [apiKeyStack, headerStack, scrollView])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -265,6 +278,7 @@ final class AIPreferencesViewController: NSViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+            summaryApiKeyField.widthAnchor.constraint(equalToConstant: 300),
             scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
             // ensure text view uses full width
             summaryPromptField.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
@@ -272,6 +286,15 @@ final class AIPreferencesViewController: NSViewController {
         ])
     }
     
+    private lazy var translationApiKeyField: NSSecureTextField = {
+        let field = NSSecureTextField()
+        field.placeholderString = "Optional: Independent API Key"
+        field.stringValue = settings.translationApiKey
+        field.target = self
+        field.action = #selector(translationApiKeyChanged(_:))
+        return field
+    }()
+
     private func setupTranslationUI(in view: NSView) {
         let labelPrompt = NSTextField(labelWithString: "Translation System Prompt (%TARGET_LANGUAGE% will be replaced):")
         
@@ -282,10 +305,12 @@ final class AIPreferencesViewController: NSViewController {
         
         let grid = NSGridView(views: [
             [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup],
-            [NSGridCell.emptyContentView, autoTranslateCheckbox]
+            [NSGridCell.emptyContentView, autoTranslateCheckbox],
+            [NSTextField(labelWithString: "API Key (Optional):"), translationApiKeyField]
         ])
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 2).width = 300 // ensure width for api key field if needed, but NSSecureTextField constraints better
 
         let headerStack = NSStackView(views: [labelPrompt, resetTranslationButton])
         headerStack.spacing = 8
@@ -302,6 +327,7 @@ final class AIPreferencesViewController: NSViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+            translationApiKeyField.widthAnchor.constraint(equalToConstant: 300),
             scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
             translationPromptField.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
             scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
@@ -339,6 +365,9 @@ final class AIPreferencesViewController: NSViewController {
     @objc private func languageChanged(_ sender: NSPopUpButton) { settings.outputLanguage = sender.titleOfSelectedItem ?? "English" }
     @objc private func toggleAutoTranslate(_ sender: NSButton) { settings.autoTranslate = (sender.state == .on) }
     @objc private func rateLimitChanged(_ sender: NSPopUpButton) { settings.rateLimit = sender.titleOfSelectedItem ?? "2/s" }
+    
+    @objc private func summaryApiKeyChanged(_ sender: NSTextField) { settings.summaryApiKey = sender.stringValue }
+    @objc private func translationApiKeyChanged(_ sender: NSTextField) { settings.translationApiKey = sender.stringValue }
     
     @objc private func testConnection(_ sender: NSButton) {
         // Force update settings from UI to ensure we have the latest values

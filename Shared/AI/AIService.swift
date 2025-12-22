@@ -21,23 +21,24 @@ actor AIService {
     
     func summarize(text: String) async throws -> String {
         let prompt = "\(settings.summaryPrompt)\n\n\(text)"
-        return try await performChatRequest(systemPrompt: "You are a helpful assistant that summarizes articles.", userPrompt: prompt)
+        return try await performChatRequest(systemPrompt: "You are a helpful assistant that summarizes articles.", userPrompt: prompt, usage: .summary)
     }
     
     func translate(text: String, targetLanguage: String) async throws -> String {
         var promptTemplate = settings.translationPrompt
         promptTemplate = promptTemplate.replacingOccurrences(of: "%TARGET_LANGUAGE%", with: targetLanguage)
         let prompt = "\(promptTemplate)\n\n\(text)"
-        return try await performChatRequest(systemPrompt: "You are a helpful assistant that translates articles.", userPrompt: prompt)
+        return try await performChatRequest(systemPrompt: "You are a helpful assistant that translates articles.", userPrompt: prompt, usage: .translation)
     }
     
     func testConnection() async throws -> String {
         let prompt = "Ping"
-        return try await performChatRequest(systemPrompt: "You are a helpful assistant.", userPrompt: prompt)
+        return try await performChatRequest(systemPrompt: "You are a helpful assistant.", userPrompt: prompt, usage: .general)
     }
     
-    private func performChatRequest(systemPrompt: String, userPrompt: String) async throws -> String {
-        guard !settings.apiKey.isEmpty else {
+    private func performChatRequest(systemPrompt: String, userPrompt: String, usage: AISettings.AIUsage) async throws -> String {
+        let apiKey = settings.getApiKey(for: usage)
+        guard !apiKey.isEmpty else {
             throw AIServiceError.noAPIKey
         }
         
@@ -62,7 +63,7 @@ actor AIService {
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(settings.apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let model = settings.model.isEmpty ? "gpt-4o-mini" : settings.model
