@@ -549,7 +549,7 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
 		ArticleThemesManager.shared.currentThemeName = menuItem.title
 	}
 
-	@objc func aiSummary(_ sender: Any?) {
+    @objc func aiSummary(_ sender: Any?) {
 		guard let article = oneSelectedArticle else { return }
 		
 		if !AISettings.shared.isEnabled {
@@ -559,13 +559,14 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
         
         let text = article.contentText ?? article.summary ?? article.contentHTML ?? ""
         
-        // Show indeterminate progress?
-        // For now, we fire and forget or show a small HUD? 
-        // We will just start the task.
+        // Show loading state
+        detailViewController?.showAISummaryLoading()
         
         Task {
             do {
                 let summary = try await AIService.shared.summarize(text: text)
+                // Cache the result
+                AICacheManager.shared.saveSummary(summary, for: article.articleID)
                 await detailViewController?.injectAISummary(summary)
             } catch {
                 await NSAlert(error: error).runModal()
@@ -574,13 +575,16 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
 	}
 
 	@objc func aiTranslate(_ sender: Any?) {
-		guard let _ = oneSelectedArticle else { return }
+		guard let article = oneSelectedArticle else { return }
 		
 		if !AISettings.shared.isEnabled {
             showAIDisabledAlert()
 			return
 		}
 
+        // Clear existing translation cache for this article to force regeneration
+        AICacheManager.shared.saveTranslation([:], for: article.articleID)
+        
         Task {
             await detailViewController?.performTranslation()
         }

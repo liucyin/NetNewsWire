@@ -120,16 +120,26 @@ final class DetailViewController: NSViewController, WKUIDelegate {
     func injectAISummary(_ text: String) {
         currentWebViewController.injectAISummary(text)
     }
+    
+    func showAISummaryLoading() {
+        currentWebViewController.showAISummaryLoading()
+    }
 
     func performTranslation() async {
-        guard let webVC = currentWebViewController else { return }
-        let map = await webVC.prepareForTranslation()
-        let total = map.count
+        guard let webVC = currentWebViewController, let article = webVC.article else { return }
         
-        // Progress UI could be added here
+        // If cache exists (and not cleared by caller), use it?
+        // Caller (MainWindowController) clears it if it's a "Regenerate" action.
+        // If this is called from Auto-translate, we should check cache first?
+        // Auto-translate logic in DidFinishLoad checks cache. If missing, it calls this.
+        // So here we assume we need to translate.
+        
+        let map = await webVC.prepareForTranslation()
+        // let total = map.count
+        
+        var translatedMap: [String: String] = [:]
         
         // Translate in parallel or batches
-        // For simplicity, simple loop with TaskGroup
         await withTaskGroup(of: (String, String)?.self) { group in
             for (id, text) in map {
                 group.addTask {
@@ -149,8 +159,14 @@ final class DetailViewController: NSViewController, WKUIDelegate {
                     await MainActor.run {
                         webVC.injectTranslation(id: id, text: translation)
                     }
+                    translatedMap[id] = translation
                 }
             }
+        }
+        
+        // Save results to cache
+        if !translatedMap.isEmpty {
+            AICacheManager.shared.saveTranslation(translatedMap, for: article.articleID)
         }
     }
 }
@@ -161,11 +177,29 @@ import NaturalLanguage
 extension DetailViewController: DetailWebViewControllerDelegate {
     
     func detailWebViewControllerDidFinishLoad(_ detailWebViewController: DetailWebViewController) {
-        // Auto-translate logic
-        guard AISettings.shared.isEnabled, AISettings.shared.autoTranslate,
+        guard AISettings.shared.isEnabled, let article = detailWebViewController.article else { return }
+        
+        let articleID = article.articleID
+        
+        // 1. Restore Summary Cache
+        if let cachedSummary = AICacheManager.shared.getSummary(for: articleID) {
+            detailWebViewController.injectAISummary(cachedSummary)
+        }
+        
+        // 2. Restore Translation Cache
+        if let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID), !cachedTranslations.isEmpty {
+            for (id, text) in cachedTranslations {
+                detailWebViewController.injectTranslation(id: id, text: text)
+            }
+            // If we have translations, we stop here (don't auto-translate again)
+            return
+        }
+        
+        // Auto-translate logic (only if no cache)
+        guard AISettings.shared.autoTranslate,
               detailWebViewController === currentWebViewController else { return }
         
-        guard let article = detailWebViewController.article else { return }
+        // ... rest of auto translate ...
         
         // Use article content (summary or text) for language detection
         let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""

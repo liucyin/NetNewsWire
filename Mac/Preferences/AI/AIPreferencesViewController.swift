@@ -251,6 +251,12 @@ final class AIPreferencesViewController: NSViewController {
         return field
     }()
 
+    private lazy var clearSummaryCacheButton: NSButton = {
+        let btn = NSButton(title: "Clear Summary Cache", target: self, action: #selector(clearSummaryCache(_:)))
+        btn.bezelStyle = .rounded
+        return btn
+    }()
+
     private func setupSummaryUI(in view: NSView) {
         let label = NSTextField(labelWithString: "Summary System Prompt:")
         let scrollView = NSScrollView()
@@ -266,7 +272,8 @@ final class AIPreferencesViewController: NSViewController {
         headerStack.distribution = .fillProportionally
         headerStack.spacing = 8
         
-        let stack = NSStackView(views: [apiKeyStack, headerStack, scrollView])
+        // Add clear cache button at the bottom
+        let stack = NSStackView(views: [apiKeyStack, headerStack, scrollView, clearSummaryCacheButton])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -315,8 +322,34 @@ final class AIPreferencesViewController: NSViewController {
         let headerStack = NSStackView(views: [labelPrompt, resetTranslationButton])
         headerStack.spacing = 8
 
-        let stack = NSStackView(views: [grid, headerStack, scrollView])
+    private lazy var clearSummaryCacheButton: NSButton = {
+        let btn = NSButton(title: "Clear Summary Cache", target: self, action: #selector(clearSummaryCache(_:)))
+        btn.bezelStyle = .rounded
+        return btn
+    }()
+
+    // ... (inside setupSummaryUI)
+        let stack = NSStackView(views: [apiKeyStack, headerStack, scrollView, clearSummaryCacheButton])
         stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.spacing = 8
+        
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            // ... keys ...
+            clearSummaryCacheButton.leadingAnchor.constraint(equalTo: stack.leadingAnchor)
+        ])
+    
+    // ... (inside setupTranslationUI)
+    private lazy var clearTranslationCacheButton: NSButton = {
+        let btn = NSButton(title: "Clear Translation Cache", target: self, action: #selector(clearTranslationCache(_:)))
+        btn.bezelStyle = .rounded
+        return btn
+    }()
+    
+    // (add to stack)
+    let stack = NSStackView(views: [grid, headerStack, scrollView, clearTranslationCacheButton])
         stack.alignment = .leading
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -350,6 +383,24 @@ final class AIPreferencesViewController: NSViewController {
         let label = NSTextField(labelWithString: text)
         label.font = NSFont.boldSystemFont(ofSize: 13)
         return label
+    }
+    
+    @objc private func clearSummaryCache(_ sender: NSButton) {
+        AICacheManager.shared.clearSummaryCache()
+        let alert = NSAlert()
+        alert.messageText = "Summary Cache Cleared"
+        alert.informativeText = "All cached summaries have been removed."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+    
+    @objc private func clearTranslationCache(_ sender: NSButton) {
+        AICacheManager.shared.clearTranslationCache()
+        let alert = NSAlert()
+        alert.messageText = "Translation Cache Cleared"
+        alert.informativeText = "All cached translations have been removed."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
     
     // MARK: - Actions
