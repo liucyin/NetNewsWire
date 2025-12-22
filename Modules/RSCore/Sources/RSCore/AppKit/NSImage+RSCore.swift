@@ -11,38 +11,21 @@ import AppKit
 
 public extension NSImage {
 
-	func tinted(with color: NSColor) -> NSImage {
-		let image = self.copy() as! NSImage
+	func imageByScalingToFill(targetSize: NSSize) -> NSImage {
+		let widthRatio = targetSize.width / self.size.width
+		let heightRatio = targetSize.height / self.size.height
+		let scaleFactor = max(widthRatio, heightRatio)
+
+		let newSize = NSSize(width: self.size.width * scaleFactor, height: self.size.height * scaleFactor)
+		let image = NSImage(size: targetSize)
 
 		image.lockFocus()
-
-		color.set()
-		let rect = NSRect(x: 0, y: 0, width: image.size.width, height: image.size.height)
-		rect.fill(using: .sourceAtop)
-
+		let x = (targetSize.width - newSize.width) / 2
+		let y = (targetSize.height - newSize.height) / 2
+		self.draw(in: NSRect(x: x, y: y, width: newSize.width, height: newSize.height), from: NSRect(origin: .zero, size: self.size), operation: .copy, fraction: 1.0)
 		image.unlockFocus()
 
-		image.isTemplate = false
 		return image
-	}
-
-	func imageByCroppingToSquare() -> NSImage {
-		let originalSize = self.size
-		if originalSize.width == originalSize.height {
-			return self
-		}
-
-		let size = min(originalSize.width, originalSize.height)
-		let x = (originalSize.width - size) / 2
-		let y = (originalSize.height - size) / 2
-		let rect = NSRect(x: x, y: y, width: size, height: size)
-		
-		let newImage = NSImage(size: NSSize(width: size, height: size))
-		newImage.lockFocus()
-		self.draw(in: NSRect(x: 0, y: 0, width: size, height: size), from: rect, operation: .copy, fraction: 1.0)
-		newImage.unlockFocus()
-		
-		return newImage
 	}
 }
 #endif
