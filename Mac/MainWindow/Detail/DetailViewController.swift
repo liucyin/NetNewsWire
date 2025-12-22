@@ -125,31 +125,35 @@ final class DetailViewController: NSViewController, WKUIDelegate {
         currentWebViewController.showAISummaryLoading()
     }
 
+    func performTitleTranslation() async {
+         guard let webVC = currentWebViewController, let article = webVC.article else { return }
+         let title = article.title ?? ""
+         guard !title.isEmpty else { return }
+         
+         let recognizer = NLLanguageRecognizer()
+         recognizer.processString(title)
+         
+         if let dominant = recognizer.dominantLanguage {
+             let targetLang = AISettings.shared.outputLanguage
+             let targetIso = isoCode(for: targetLang)
+             
+             if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
+                 do {
+                     let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
+                     webVC.injectTitleTranslation(translated)
+                 } catch {
+                     print("Title Translation Error: \(error)")
+                 }
+             }
+         }
+    }
+
     func performTranslation() async {
         guard let webVC = currentWebViewController, let article = webVC.article else { return }
         
         // Translate Title if enabled (Parallel Task)
         if AISettings.shared.autoTranslateTitles {
-            let title = article.title ?? ""
-            if !title.isEmpty {
-                Task {
-                    let recognizer = NLLanguageRecognizer()
-                    recognizer.processString(title)
-                    if let dominant = recognizer.dominantLanguage {
-                        let targetLang = AISettings.shared.outputLanguage
-                        let targetIso = isoCode(for: targetLang)
-                        
-                        if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
-                            do {
-                                let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
-                                webVC.injectTitleTranslation(translated)
-                            } catch {
-                                print("Title Translation Error: \(error)")
-                            }
-                        }
-                    }
-                }
-            }
+             Task { await performTitleTranslation() }
         }
         
         let map = await webVC.prepareForTranslation()
@@ -219,30 +223,44 @@ extension DetailViewController: DetailWebViewControllerDelegate {
             }
             
             // Auto-translate logic (only if no cache)
-            guard AISettings.shared.autoTranslate,
+            let autoTranslateBody = AISettings.shared.autoTranslate
+            let autoTranslateTitles = AISettings.shared.autoTranslateTitles
+            
+            guard (autoTranslateBody || autoTranslateTitles),
                   detailWebViewController === currentWebViewController else { return }
             
-            // Use article content (summary or text) for language detection
-            let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
-            guard !textSample.isEmpty else { return }
+            var didTriggerFullTranslation = false
+
+            if autoTranslateBody {
+                // Use article content (summary or text) for language detection
+                let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+                if !textSample.isEmpty {
+                    // Simple heuristic: Take first 500 chars for detection
+                    let sample = String(textSample.prefix(500))
+                    let recognizer = NLLanguageRecognizer()
+                    recognizer.processString(sample)
+                    
+                    if let dominantLang = recognizer.dominantLanguage {
+                        let targetLang = AISettings.shared.outputLanguage
+                        let targetIso = isoCode(for: targetLang)
+                        let detectedIso = dominantLang.rawValue
+                        
+                        print("AI Auto-Translate: Detected \(detectedIso), Target \(targetIso) (\(targetLang))")
+                        
+                        // Check if detected starts with target (e.g. en-US starts with en)
+                        if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
+                            print("AI Auto-Translate: Triggering translation...")
+                            await performTranslation()
+                            didTriggerFullTranslation = true
+                        }
+                    }
+                }
+            }
             
-            // Simple heuristic: Take first 500 chars for detection
-            let sample = String(textSample.prefix(500))
-            let recognizer = NLLanguageRecognizer()
-            recognizer.processString(sample)
-            
-            guard let dominantLang = recognizer.dominantLanguage else { return }
-            
-            let targetLang = AISettings.shared.outputLanguage
-            let targetIso = isoCode(for: targetLang)
-            let detectedIso = dominantLang.rawValue
-            
-            print("AI Auto-Translate: Detected \(detectedIso), Target \(targetIso) (\(targetLang))")
-            
-            // Check if detected starts with target (e.g. en-US starts with en)
-            if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
-                print("AI Auto-Translate: Triggering translation...")
-                await performTranslation()
+            // If body translation was not triggered (either disabled or language matched),
+            // check if we need to translate just the title.
+            if !didTriggerFullTranslation && autoTranslateTitles {
+                 await performTitleTranslation()
             }
         }
     }
