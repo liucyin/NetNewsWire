@@ -127,6 +127,7 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 
     func performTitleTranslation() async {
          guard let webVC = currentWebViewController, let article = webVC.article else { return }
+         let articleID = article.articleID
          let title = article.title ?? ""
          guard !title.isEmpty else { return }
          
@@ -140,7 +141,11 @@ final class DetailViewController: NSViewController, WKUIDelegate {
              if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
                  do {
                      let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
-                     AICacheManager.shared.saveTitleTranslation(translated, for: article.articleID)
+                     
+                     // Verify context matches the original request
+                     guard webVC.article?.articleID == articleID else { return }
+                     
+                     AICacheManager.shared.saveTitleTranslation(translated, for: articleID)
                      webVC.injectTitleTranslation(translated)
                  } catch {
                      print("Title Translation Error: \(error)")

@@ -522,6 +522,7 @@ final class AIPreferencesViewController: NSViewController {
     
     @objc private func clearTranslationCache() {
         AICacheManager.shared.clearTranslationCache()
+        AICacheManager.shared.clearTitleTranslationCache()
         showDone("Translation Cache Cleared")
     }
     
