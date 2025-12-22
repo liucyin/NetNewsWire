@@ -57,6 +57,7 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
 	}
 	private var searchSmartFeed: SmartFeed? = nil
 	private var restoreArticleWindowScrollY: CGFloat?
+	private var aiPopover: NSPopover?
 
 	// MARK: - NSWindowController
 
@@ -550,28 +551,49 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
 
 	@objc func aiSummary(_ sender: Any?) {
 		guard let article = oneSelectedArticle else { return }
-		// Placeholder for AI Service
-		// In a real implementation, this would call AIService.shared.summarize(article)
-		let alert = NSAlert()
-		alert.messageText = "AI Configuration"
+		
 		if !AISettings.shared.isEnabled {
-			alert.informativeText = "AI features are disabled. Please enable them in Preferences > AI."
-		} else {
-			alert.informativeText = "Requesting Summary for: \(article.title ?? "Article")\nUsing Provider: \(AISettings.shared.provider)"
+			let alert = NSAlert()
+			alert.messageText = "AI Disabled"
+			alert.informativeText = "Please enable AI features in Preferences > AI."
+			alert.runModal()
+			return
 		}
-		alert.runModal()
+		
+		let text = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+		showAIPopover(for: text, mode: .summary, sender: sender)
 	}
 
 	@objc func aiTranslate(_ sender: Any?) {
 		guard let article = oneSelectedArticle else { return }
-		let alert = NSAlert()
-		alert.messageText = "AI Configuration"
+		
 		if !AISettings.shared.isEnabled {
-			alert.informativeText = "AI features are disabled. Please enable them in Preferences > AI."
-		} else {
-			alert.informativeText = "Requesting Translation for: \(article.title ?? "Article")\nTarget Language: \(AISettings.shared.outputLanguage)"
+			let alert = NSAlert()
+			alert.messageText = "AI Disabled"
+			alert.informativeText = "Please enable AI features in Preferences > AI."
+			alert.runModal()
+			return
 		}
-		alert.runModal()
+
+		let text = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+		showAIPopover(for: text, mode: .translation, sender: sender)
+	}
+
+	private func showAIPopover(for text: String, mode: AIMode, sender: Any?) {
+		aiPopover?.close()
+		aiPopover = nil
+		
+		let contentVC = AIPopoverViewController(articleText: text, mode: mode)
+		let popover = NSPopover()
+		popover.contentViewController = contentVC
+		popover.behavior = .transient
+		popover.animates = true
+		popover.contentSize = NSSize(width: 400, height: 300)
+		
+		guard let button = sender as? NSButton else { return }
+		
+		popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+		aiPopover = popover
 	}
 
 }
