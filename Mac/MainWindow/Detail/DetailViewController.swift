@@ -141,8 +141,8 @@ final class DetailViewController: NSViewController, WKUIDelegate {
                         
                         if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
                             do {
-                                let translated = try await AIService.shared.translate(text: title)
-                                await webVC.injectTitleTranslation(translated)
+                                let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
+                                webVC.injectTitleTranslation(translated)
                             } catch {
                                 print("Title Translation Error: \(error)")
                             }

@@ -460,6 +460,41 @@ extension DetailWebViewController {
         webView.evaluateJavaScript(js)
     }
     
+    func injectTitleTranslation(_ text: String) {
+        let html = markdownToHTML(text)
+        
+        // Safely encode for JS injection
+        let jsonHtml = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
+        
+        let js = """
+        (function() {
+            // Try to find the title element. NetNewsWire templates usually use .article-title class on h1
+            var titleNode = document.querySelector('h1.article-title') || document.querySelector('h1');
+            
+            if (titleNode) {
+                 var htmlContent = \(jsonHtml);
+                 
+                 // Check if existing translation
+                 var existing = titleNode.querySelector('.ai-title-translation');
+                 if (existing) {
+                    existing.innerHTML = htmlContent;
+                 } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-title-translation';
+                    div.style.color = 'var(--secondary-label-color)';
+                    div.style.fontStyle = 'italic';
+                    div.style.fontSize = '0.8em';
+                    div.style.marginTop = '4px';
+                    div.style.marginBottom = '8px';
+                    div.innerHTML = htmlContent;
+                    titleNode.appendChild(div);
+                 }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+
     func injectTranslation(id: String, text: String) {
         let html = markdownToHTML(text)
         
