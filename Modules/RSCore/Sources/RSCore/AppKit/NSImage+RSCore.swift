@@ -11,6 +11,21 @@ import AppKit
 
 public extension NSImage {
 
+	func tinted(with color: NSColor) -> NSImage {
+		let image = self.copy() as! NSImage
+
+		image.lockFocus()
+
+		color.set()
+		let rect = NSRect(x: 0, y: 0, width: image.size.width, height: image.size.height)
+		rect.fill(using: .sourceAtop)
+
+		image.unlockFocus()
+
+		image.isTemplate = false
+		return image
+	}
+
 	func imageByScalingToFill(targetSize: NSSize) -> NSImage {
 		let widthRatio = targetSize.width / self.size.width
 		let heightRatio = targetSize.height / self.size.height
