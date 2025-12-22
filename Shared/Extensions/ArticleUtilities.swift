@@ -73,7 +73,31 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 	var imageLink: String? {
 		// Prefer link from imageURL, if one can be created, as these are repaired if required.
 		// Provide the raw link if URL creation fails.
-		return imageURL?.absoluteString ?? rawImageLink
+		if let link = imageURL?.absoluteString ?? rawImageLink {
+			return link
+		}
+		
+		return extractImageURL(from: contentHTML) ?? extractImageURL(from: summary)
+	}
+
+	private func extractImageURL(from html: String?) -> String? {
+		guard let html = html else { return nil }
+		
+		let pattern = "<img\\s+[^>]*src=\"([^\"]+)\""
+		guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+			return nil
+		}
+		
+		let range = NSRange(location: 0, length: html.utf16.count)
+		guard let match = regex.firstMatch(in: html, options: [], range: range) else {
+			return nil
+		}
+		
+		if let range = Range(match.range(at: 1), in: html) {
+			return String(html[range])
+		}
+		
+		return nil
 	}
 
 	var preferredLink: String? {

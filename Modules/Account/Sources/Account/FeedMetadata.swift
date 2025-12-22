@@ -14,7 +14,7 @@ import Articles
 	func valueDidChange(_ feedMetadata: FeedMetadata, key: FeedMetadata.CodingKeys)
 }
 
-@MainActor final class FeedMetadata: Codable {
+final class FeedMetadata: Codable {
 	enum CodingKeys: String, CodingKey {
 		case feedID
 		case homePageURL
@@ -168,6 +168,9 @@ import Articles
 	}
 
 	func valueDidChange(_ key: CodingKeys) {
-		delegate?.valueDidChange(self, key: key)
+		Task { @MainActor [weak self] in
+			guard let self = self else { return }
+			self.delegate?.valueDidChange(self, key: key)
+		}
 	}
 }

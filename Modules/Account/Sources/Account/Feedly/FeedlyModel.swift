@@ -296,7 +296,7 @@ struct FeedlyRTLTextSanitizer: Sendable {
 	}
 }
 
-protocol FeedlyEntryIdentifierProviding: AnyObject {
+@MainActor protocol FeedlyEntryIdentifierProviding: AnyObject {
 	var entryIDs: Set<String> { get }
 }
 

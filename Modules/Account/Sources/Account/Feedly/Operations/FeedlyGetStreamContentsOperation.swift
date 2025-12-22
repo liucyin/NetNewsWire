@@ -10,11 +10,11 @@ import Foundation
 import RSParser
 import os.log
 
-protocol FeedlyEntryProviding {
+@MainActor protocol FeedlyEntryProviding {
 	var entries: [FeedlyEntry] { get }
 }
 
-protocol FeedlyParsedItemProviding {
+@MainActor protocol FeedlyParsedItemProviding {
 	var parsedItemProviderName: String { get }
 	var parsedEntries: Set<ParsedItem> { get }
 }

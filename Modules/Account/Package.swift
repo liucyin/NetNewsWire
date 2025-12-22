@@ -1,9 +1,9 @@
-// swift-tools-version:6.2
+// swift-tools-version:6.0
 import PackageDescription
 
 let package = Package(
 	name: "Account",
-	platforms: [.macOS(.v26), .iOS(.v26)],
+	platforms: [.macOS(.v15), .iOS(.v18)],
 	products: [
 		.library(
 			name: "Account",
@@ -40,8 +40,6 @@ let package = Package(
 				"NewsBlur"
 			],
 			swiftSettings: [
-				.enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-				.enableUpcomingFeature("InferIsolatedConformances"),
 			]
 		),
 		.testTarget(
@@ -50,7 +48,8 @@ let package = Package(
 			resources: [
 				.copy("JSON"),
 			],
-			swiftSettings: [.swiftLanguageMode(.v6)]
+			swiftSettings: []
 		),
-	]
+	],
+	swiftLanguageModes: [.v5]
 )

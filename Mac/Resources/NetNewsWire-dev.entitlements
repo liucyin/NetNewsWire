@@ -15,9 +15,5 @@
 		<string>com.red-sweater.marsedit4</string>
 		<string>com.red-sweater.marsedit5</string>
 	</array>
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.$(ORGANIZATION_IDENTIFIER).NetNewsWire-Evergreen</string>
-	</array>
 </dict>
 </plist>
