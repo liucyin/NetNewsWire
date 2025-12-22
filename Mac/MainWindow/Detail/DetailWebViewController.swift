@@ -236,6 +236,8 @@ extension DetailWebViewController: WKNavigationDelegate, WKUIDelegate {
 	}
 
 	public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        delegate?.detailWebViewControllerDidFinishLoad(self)
+        
 		guard let windowScrollY else {
 			return
 		}
