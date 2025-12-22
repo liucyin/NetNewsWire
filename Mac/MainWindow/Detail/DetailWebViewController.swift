@@ -455,8 +455,17 @@ extension DetailWebViewController {
         html = html.replacingOccurrences(of: #"```([^`]+)```"#, with: "<pre><code>$1</code></pre>", options: .regularExpression)
         html = html.replacingOccurrences(of: #"`([^`]+)`"#, with: "<code>$1</code>", options: .regularExpression)
 
-        // Newlines to <br>, but avoid double spacing after block elements if possible.
-        // Simple approach: just convert all \n to <br>. Browser ignores <br> after block elements often anyway or adds space.
+        // Newlines cleanup
+        
+        // 1. Remove newlines after block elements to prevent double spacing
+        // Matches </h1>, </h2>, </blockquote>, </li>, </pre>, then optional whitespace and newlines
+        html = html.replacingOccurrences(of: #"(?i)(</(h[1-6]|blockquote|li|pre)>)\s*\n+"#, with: "$1", options: .regularExpression)
+        
+        // 2. Convert remaining newlines to <br>
+        // Collapse multiple empty lines if desired, but standard md is \n\n = new p.
+        // Here we just turn each \n to <br>.
+        // To avoid excessive spacing for normal text "Text\n\nText" -> "Text<br><br>Text", this is fine.
+        // It's mainly headers causing issues.
         html = html.replacingOccurrences(of: "\n", with: "<br>")
         
         return html
