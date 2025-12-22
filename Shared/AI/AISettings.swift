@@ -142,8 +142,9 @@ You are a professional translator who needs to fluently translate text into %TAR
 1. Output only the translated content, without explanations or additional content.
 2. The returned translation must maintain exactly the same number of paragraphs as the original text.
 3. If the text contains HTML tags, consider where the tags should be placed in the translation while maintaining fluency.
-4. For content that should not be translated (such as proper nouns, code, etc.), keep the original text.
-5. Use Markdown for formatting (bold, italic, etc) if necessary.
+4. Translate all text including headlines, titles, and headers.
+5. Do NOT translate: URLs, Code blocks, or specific technical Variable Names.
+6. Use Markdown for formatting (bold, italic, etc) if necessary.
 """ }
         set {
             defaults.set(newValue, forKey: Keys.aiTranslationPrompt)

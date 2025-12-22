@@ -466,7 +466,7 @@ extension DetailWebViewController {
     func prepareForTranslation() async -> [String: String] {
         let js = """
         (function() {
-            var nodes = document.querySelectorAll('p, li, blockquote');
+            var nodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
             var result = [];
             
             // Regex for checking if text is just a URL

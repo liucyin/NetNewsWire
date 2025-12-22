@@ -113,7 +113,17 @@ actor AIService {
                   let content = message["content"] as? String else {
                 throw AIServiceError.invalidResponse
             }
-            return content
+            
+            // Clean content of XML tags we might have injected
+            // Sometimes models echo the tags back
+            var cleanedInfo = content
+            cleanedInfo = cleanedInfo.replacingOccurrences(of: "<text_to_translate>", with: "")
+            cleanedInfo = cleanedInfo.replacingOccurrences(of: "</text_to_translate>", with: "")
+            cleanedInfo = cleanedInfo.replacingOccurrences(of: "<article_content>", with: "")
+            cleanedInfo = cleanedInfo.replacingOccurrences(of: "</article_content>", with: "")
+            cleanedInfo = cleanedInfo.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            return cleanedInfo
         } catch {
             throw AIServiceError.decodingError(error)
         }
