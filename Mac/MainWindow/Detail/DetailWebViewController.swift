@@ -374,16 +374,17 @@ extension DetailWebViewController {
             var summaryDiv = document.getElementById('aiSummary');
             if (summaryDiv) {
                 summaryDiv.style.display = 'block';
-                summaryDiv.style.padding = '15px 0';
+                summaryDiv.style.padding = '20px 24px';
                 summaryDiv.style.marginBottom = '20px';
                 summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
                 summaryDiv.style.color = 'var(--secondary-label-color)';
                 summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+                summaryDiv.style.boxSizing = 'border-box';
                 
-                // Loading Animation: Simple pulsing text
+                // Loading Animation
                 summaryDiv.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 8px; opacity: 0.8;">
-                        <span style="font-weight: 500; font-size: 13px; animation: pulse 1.5s infinite;">Generating AI Summary...</span>
+                    <div style="display: flex; align-items: center; gap: 10px; opacity: 0.9;">
+                        <span style="font-weight: 500; font-size: 13px; animation: pulse 1.5s infinite; color: var(--secondary-label-color);">Generating AI Summary...</span>
                     </div>
                     <style>
                         @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
@@ -397,37 +398,39 @@ extension DetailWebViewController {
 
     func injectAISummary(_ text: String) {
         let html = markdownToHTML(text)
-        let escaped = html.replacingOccurrences(of: "\\", with: "\\\\")
-                          .replacingOccurrences(of: "`", with: "\\`")
-                          .replacingOccurrences(of: "$", with: "\\$")
-                          .replacingOccurrences(of: "\n", with: "") 
+        
+        // Safely encode HTML string for JS injection
+        let jsonString = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
 
         let js = """
         (function() {
             var summaryDiv = document.getElementById('aiSummary');
             if (summaryDiv) {
                 // Minimalist Styling
-                summaryDiv.style.padding = '15px 0';
+                summaryDiv.style.padding = '20px 24px';
                 summaryDiv.style.marginBottom = '24px';
                 summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
                 summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
                 summaryDiv.style.fontSize = '1em'; 
                 summaryDiv.style.lineHeight = '1.6';
-                summaryDiv.style.color = 'var(--body-text-color)'; // Crucial for dark mode
+                summaryDiv.style.color = 'var(--body-text-color)';
+                summaryDiv.style.boxSizing = 'border-box';
+                
+                var htmlContent = \(jsonString);
                 
                 // Header style - Minimal
                 var content = `
-                <div style="margin-bottom: 12px; font-size: 0.85em; font-weight: 700; text-transform: uppercase; color: var(--secondary-label-color); letter-spacing: 0.05em;">
+                <div style="margin-bottom: 16px; font-size: 0.85em; font-weight: 700; text-transform: uppercase; color: var(--secondary-label-color); letter-spacing: 0.05em;">
                     AI Summary
                 </div>
-                <div class="ai-content">\(escaped)</div>
+                <div class="ai-content">${htmlContent}</div>
                 <style>
                     .ai-content h1, .ai-content h2, .ai-content h3 { margin-top: 1.2em; margin-bottom: 0.6em; color: var(--header-text-color); font-weight: 600; }
                     .ai-content h3 { font-size: 1.1em; }
                     .ai-content p { margin-bottom: 1em; }
                     .ai-content ul, .ai-content ol { margin-bottom: 1em; padding-left: 1.5em; }
                     .ai-content li { margin-bottom: 0.5em; }
-                    .ai-content blockquote { border-left: 3px solid var(--accent-color); padding-left: 1em; color: var(--secondary-label-color); }
+                    .ai-content blockquote { border-left: 3px solid var(--accent-color); padding-left: 1em; color: var(--secondary-label-color); margin-left: 0; }
                 </style>
                 `;
                 
