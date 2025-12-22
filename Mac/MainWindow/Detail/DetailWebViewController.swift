@@ -609,13 +609,14 @@ extension DetailWebViewController {
                 var text = node.innerText.trim();
                 
                 // Skip if empty or too short
-                if (text.length <= 10) continue;
+                if (text.length <= 5) continue;
                 
                 // Skip if it looks like a raw URL
                 if (urlRegex.test(text)) continue;
 
                 // We assume ensureStableIDs has run, so node.id is set.
-                if (node.id) {
+                // We accept legacy 'ai-node-', or new 'ai-summary-node-' / 'ai-body-node-'
+                if (node.id && (node.id.startsWith('ai-node-') || node.id.startsWith('ai-summary-node-') || node.id.startsWith('ai-body-node-'))) {
                     result.push({id: node.id, text: text});
                 }
             }
