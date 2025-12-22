@@ -547,8 +547,27 @@ extension DetailWebViewController {
         return html
     }
 
+    // Ensure all target nodes have stable IDs for translation injection
+    func ensureStableIDs() async {
+        let js = """
+        (function() {
+            var nodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+            for (var i = 0; i < nodes.length; i++) {
+                // We use a deterministic ID based on index to ensure cache hits across reloads
+                if (!nodes[i].id || !nodes[i].id.startsWith('ai-node-')) {
+                    nodes[i].id = 'ai-node-' + i;
+                }
+            }
+        })();
+        """
+        try? await webView.evaluateJavaScript(js)
+    }
+
     // Returns a dictionary of [ID: Text]
     func prepareForTranslation() async -> [String: String] {
+        // First ensure IDs are assigned
+        await ensureStableIDs()
+        
         let js = """
         (function() {
             var nodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
@@ -559,9 +578,6 @@ extension DetailWebViewController {
 
             for (var i = 0; i < nodes.length; i++) {
                 var node = nodes[i];
-                if (!node.id) {
-                    node.id = 'ai-p-' + i + '-' + Date.now();
-                }
                 var text = node.innerText.trim();
                 
                 // Skip if empty or too short
@@ -570,10 +586,10 @@ extension DetailWebViewController {
                 // Skip if it looks like a raw URL
                 if (urlRegex.test(text)) continue;
 
-                // Skip if it looks like code (often inside pre/code blocks, but selector excludes pre, so maybe okay)
-                // But p tags might contain code.
-                
-                result.push({id: node.id, text: text});
+                // We assume ensureStableIDs has run, so node.id is set.
+                if (node.id) {
+                    result.push({id: node.id, text: text});
+                }
             }
             return result;
         })();
@@ -582,7 +598,7 @@ extension DetailWebViewController {
         do {
             guard let result = try await webView.evaluateJavaScript(js) as? [[String: String]] else {
                 return [:]
-            } // Cast to Array of Dicts
+            } 
             
             var map = [String: String]()
             for item in result {

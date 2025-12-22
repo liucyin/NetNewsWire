@@ -181,54 +181,47 @@ extension DetailViewController: DetailWebViewControllerDelegate {
         
         let articleID = article.articleID
         
-        // 1. Restore Summary Cache
-        if let cachedSummary = AICacheManager.shared.getSummary(for: articleID) {
-            detailWebViewController.injectAISummary(cachedSummary)
-        }
-        
-        // 2. Restore Translation Cache
-        if let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID), !cachedTranslations.isEmpty {
-            for (id, text) in cachedTranslations {
-                detailWebViewController.injectTranslation(id: id, text: text)
+        Task { @MainActor in
+            // Ensure IDs are stable (deterministic) so cache matching works
+            await detailWebViewController.ensureStableIDs()
+            
+            // 1. Restore Summary Cache
+            if let cachedSummary = AICacheManager.shared.getSummary(for: articleID) {
+                detailWebViewController.injectAISummary(cachedSummary)
             }
-            // If we have translations, we stop here (don't auto-translate again)
-            return
-        }
-        
-        // Auto-translate logic (only if no cache)
-        guard AISettings.shared.autoTranslate,
-              detailWebViewController === currentWebViewController else { return }
-        
-        // ... rest of auto translate ...
-        
-        // Use article content (summary or text) for language detection
-        let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
-        guard !textSample.isEmpty else { return }
-        
-        // Simple heuristic: Take first 500 chars for detection
-        let sample = String(textSample.prefix(500))
-        let recognizer = NLLanguageRecognizer()
-        recognizer.processString(sample)
-        
-        guard let dominantLang = recognizer.dominantLanguage else { return }
-        
-        let targetLang = AISettings.shared.outputLanguage
-        
-        // Basic mapping. NLLanguage uses ISO codes (en, zh, etc).
-        // Settings uses full names "English", "Chinese", etc.
-        // We need a mapper.
-        
-        let targetIso = isoCode(for: targetLang)
-        
-        // If detected language is NOT the target language (and confidence is high contextually), translate.
-        // We assume article is in a single language.
-        
-        // Note: dominantLang.rawValue returns "en", "zh-Hans", etc.
-        let detectedIso = dominantLang.rawValue
-        
-        // Check if detected starts with target (e.g. en-US starts with en)
-        if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
-            Task {
+            
+            // 2. Restore Translation Cache
+            if let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID), !cachedTranslations.isEmpty {
+                for (id, text) in cachedTranslations {
+                    detailWebViewController.injectTranslation(id: id, text: text)
+                }
+                // If we have translations, we stop here (don't auto-translate again)
+                return
+            }
+            
+            // Auto-translate logic (only if no cache)
+            guard AISettings.shared.autoTranslate,
+                  detailWebViewController === currentWebViewController else { return }
+            
+            // Use article content (summary or text) for language detection
+            let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+            guard !textSample.isEmpty else { return }
+            
+            // Simple heuristic: Take first 500 chars for detection
+            let sample = String(textSample.prefix(500))
+            let recognizer = NLLanguageRecognizer()
+            recognizer.processString(sample)
+            
+            guard let dominantLang = recognizer.dominantLanguage else { return }
+            
+            let targetLang = AISettings.shared.outputLanguage
+            let targetIso = isoCode(for: targetLang)
+            
+            // Note: dominantLang.rawValue returns "en", "zh-Hans", etc.
+            let detectedIso = dominantLang.rawValue
+            
+            // Check if detected starts with target (e.g. en-US starts with en)
+            if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
                 await performTranslation()
             }
         }
