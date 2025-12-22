@@ -420,12 +420,14 @@ extension DetailWebViewController {
                 
                 var htmlContent = \(jsonString);
                 
-                // Header style - Minimal
                 var content = `
-                <div style="margin-bottom: 16px; font-size: 0.85em; font-weight: 700; text-transform: uppercase; color: var(--secondary-label-color); letter-spacing: 0.05em;">
-                    AI Summary
+                <div class="ai-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; cursor: pointer; user-select: none;" onclick="toggleAISummary(this)">
+                    <div style="font-size: 0.85em; font-weight: 700; text-transform: uppercase; color: var(--secondary-label-color); letter-spacing: 0.05em;">AI Summary</div>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--secondary-label-color); transition: transform 0.2s;">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
                 </div>
-                <div class="ai-content">${htmlContent}</div>
+                <div class="ai-content" style="display: block;">${htmlContent}</div>
                 <style>
                     .ai-content h1, .ai-content h2, .ai-content h3 { margin-top: 1.2em; margin-bottom: 0.6em; color: var(--header-text-color); font-weight: 600; }
                     .ai-content h3 { font-size: 1.1em; }
@@ -438,38 +440,54 @@ extension DetailWebViewController {
                 
                 summaryDiv.innerHTML = content;
                 summaryDiv.style.display = 'block';
+
+                if (!window.toggleAISummary) {
+                    window.toggleAISummary = function(header) {
+                        var content = header.nextElementSibling;
+                        var icon = header.querySelector('svg');
+                        if (content.style.display === 'none') {
+                            content.style.display = 'block';
+                            icon.style.transform = 'rotate(0deg)';
+                        } else {
+                            content.style.display = 'none';
+                            icon.style.transform = 'rotate(-90deg)';
+                        }
+                    };
+                }
             }
         })();
         """
         webView.evaluateJavaScript(js)
     }
     
-    // ... (prepareForTranslation stays same) ...
-    
     func injectTranslation(id: String, text: String) {
         let html = markdownToHTML(text)
-        let escaped = html.replacingOccurrences(of: "\\", with: "\\\\")
-                          .replacingOccurrences(of: "\"", with: "\\\"")
-                          .replacingOccurrences(of: "\n", with: "")
+        
+        // Safely encode for JS injection
+        let jsonHtml = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
+        let jsonId = (try? String(data: JSONEncoder().encode(id), encoding: .utf8)) ?? "\"\""
         
         let js = """
         (function() {
-            var node = document.getElementById('\(id)');
+            var node = document.getElementById(\(jsonId));
             if (node) {
+                var htmlContent = \(jsonHtml);
+                
                 // Check if already has translation
                 var existing = node.nextElementSibling;
                 if (existing && existing.className == 'ai-translation') {
-                    existing.innerHTML = "\(escaped)";
+                    existing.innerHTML = htmlContent;
                 } else {
                     var div = document.createElement('div');
                     div.className = 'ai-translation';
-                    div.style.color = '#666'; 
+                    div.style.color = 'var(--secondary-label-color)'; // Adaptive color
                     div.style.fontStyle = 'italic';
-                    div.style.marginTop = '4px';
-                    div.style.marginBottom = '12px';
-                    div.style.paddingLeft = '10px';
-                    div.style.borderLeft = '2px solid var(--accent-color)';
-                    div.innerHTML = "\(escaped)";
+                    div.style.marginTop = '6px';
+                    div.style.marginBottom = '16px';
+                    div.style.paddingLeft = '12px';
+                    div.style.borderLeft = '3px solid var(--accent-color)';
+                    div.style.lineHeight = '1.6';
+                    div.innerHTML = htmlContent;
                     node.parentNode.insertBefore(div, node.nextSibling);
                 }
             }
