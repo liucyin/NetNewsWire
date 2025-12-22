@@ -374,21 +374,19 @@ extension DetailWebViewController {
             var summaryDiv = document.getElementById('aiSummary');
             if (summaryDiv) {
                 summaryDiv.style.display = 'block';
-                summaryDiv.style.padding = '15px';
+                summaryDiv.style.padding = '15px 0';
                 summaryDiv.style.marginBottom = '20px';
-                summaryDiv.style.backgroundColor = 'var(--secondary-group-background-color, #f5f5f5)';
-                summaryDiv.style.borderRadius = '8px';
-                summaryDiv.style.border = '1px solid var(--separator-color, #e0e0e0)';
-                summaryDiv.style.color = 'var(--label-color, #333)';
+                summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
+                summaryDiv.style.color = 'var(--secondary-label-color)';
+                summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
                 
-                // Loading Animation
+                // Loading Animation: Simple pulsing text
                 summaryDiv.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-weight: 600;">Generating AI Summary</span>
-                        <div class="ai-spinner" style="width: 16px; height: 16px; border: 2px solid var(--accent-color); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                    <div style="display: flex; align-items: center; gap: 8px; opacity: 0.8;">
+                        <span style="font-weight: 500; font-size: 13px; animation: pulse 1.5s infinite;">Generating AI Summary...</span>
                     </div>
                     <style>
-                        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
                     </style>
                 `;
             }
@@ -400,41 +398,36 @@ extension DetailWebViewController {
     func injectAISummary(_ text: String) {
         let html = markdownToHTML(text)
         let escaped = html.replacingOccurrences(of: "\\", with: "\\\\")
-                          .replacingOccurrences(of: "\"", with: "\\\"")
+                          .replacingOccurrences(of: "`", with: "\\`")
+                          .replacingOccurrences(of: "$", with: "\\$")
                           .replacingOccurrences(of: "\n", with: "") 
 
         let js = """
         (function() {
             var summaryDiv = document.getElementById('aiSummary');
             if (summaryDiv) {
-                // Styling
-                summaryDiv.style.padding = '16px';
+                // Minimalist Styling
+                summaryDiv.style.padding = '15px 0';
                 summaryDiv.style.marginBottom = '24px';
-                summaryDiv.style.backgroundColor = 'var(--secondary-group-background-color, #f9f9f9)'; // Adaptive color if possible
-                summaryDiv.style.borderRadius = '10px';
-                summaryDiv.style.border = '1px solid var(--separator-color, #eaeaea)';
-                summaryDiv.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-                summaryDiv.style.fontSize = '15px';
+                summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
+                summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+                summaryDiv.style.fontSize = '1em'; 
                 summaryDiv.style.lineHeight = '1.6';
-                summaryDiv.style.color = 'var(--label-color)';
+                summaryDiv.style.color = 'var(--body-text-color)'; // Crucial for dark mode
                 
-                // Header style
+                // Header style - Minimal
                 var content = `
-                <div style="display: flex; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--separator-color);">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px; color: var(--accent-color);">
-                      <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"></path>
-                      <path d="M12 8v8"></path>
-                      <path d="M8 12h8"></path>
-                    </svg>
-                    <span style="font-weight: 700; font-size: 14px; text-transform: uppercase; color: var(--secondary-label-color);">AI Summary</span>
+                <div style="margin-bottom: 12px; font-size: 0.85em; font-weight: 700; text-transform: uppercase; color: var(--secondary-label-color); letter-spacing: 0.05em;">
+                    AI Summary
                 </div>
                 <div class="ai-content">\(escaped)</div>
                 <style>
-                    .ai-content h1, .ai-content h2, .ai-content h3 { margin-top: 1em; margin-bottom: 0.5em; color: var(--header-text-color); }
+                    .ai-content h1, .ai-content h2, .ai-content h3 { margin-top: 1.2em; margin-bottom: 0.6em; color: var(--header-text-color); font-weight: 600; }
                     .ai-content h3 { font-size: 1.1em; }
-                    .ai-content p { margin-bottom: 0.8em; }
-                    .ai-content ul, .ai-content ol { margin-bottom: 0.8em; padding-left: 20px; }
-                    .ai-content li { margin-bottom: 0.4em; }
+                    .ai-content p { margin-bottom: 1em; }
+                    .ai-content ul, .ai-content ol { margin-bottom: 1em; padding-left: 1.5em; }
+                    .ai-content li { margin-bottom: 0.5em; }
+                    .ai-content blockquote { border-left: 3px solid var(--accent-color); padding-left: 1em; color: var(--secondary-label-color); }
                 </style>
                 `;
                 
