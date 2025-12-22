@@ -317,39 +317,12 @@ final class AIPreferencesViewController: NSViewController {
         ])
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
-        // grid.column(at: 2) does not exist (only 2 columns created from 2-element rows)
 
         let headerStack = NSStackView(views: [labelPrompt, resetTranslationButton])
         headerStack.spacing = 8
 
-    private lazy var clearSummaryCacheButton: NSButton = {
-        let btn = NSButton(title: "Clear Summary Cache", target: self, action: #selector(clearSummaryCache(_:)))
-        btn.bezelStyle = .rounded
-        return btn
-    }()
-
-    // ... (inside setupSummaryUI)
-        let stack = NSStackView(views: [apiKeyStack, headerStack, scrollView, clearSummaryCacheButton])
+        let stack = NSStackView(views: [grid, headerStack, scrollView, clearTranslationCacheButton])
         stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.spacing = 8
-        
-        view.addSubview(stack)
-        NSLayoutConstraint.activate([
-            // ... keys ...
-            clearSummaryCacheButton.leadingAnchor.constraint(equalTo: stack.leadingAnchor)
-        ])
-    
-    // ... (inside setupTranslationUI)
-    private lazy var clearTranslationCacheButton: NSButton = {
-        let btn = NSButton(title: "Clear Translation Cache", target: self, action: #selector(clearTranslationCache(_:)))
-        btn.bezelStyle = .rounded
-        return btn
-    }()
-    
-    // (add to stack)
-    let stack = NSStackView(views: [grid, headerStack, scrollView, clearTranslationCacheButton])
         stack.alignment = .leading
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
