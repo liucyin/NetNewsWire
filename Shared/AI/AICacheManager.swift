@@ -90,9 +90,6 @@ final class AICacheManager {
         titleTranslationCache[articleID] = text
         defaults.set(titleTranslationCache, forKey: titleTranslationKey)
     }
-        titleTranslationCache[articleID] = text
-        defaults.set(titleTranslationCache, forKey: titleTranslationKey)
-    }
     
     func clearTitleTranslationCache() {
         titleTranslationCache.removeAll()
