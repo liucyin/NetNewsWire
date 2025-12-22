@@ -20,13 +20,20 @@ actor AIService {
     private init() {}
     
     func summarize(text: String) async throws -> String {
-        let prompt = "Please summarize the following article in a concise manner:\n\n\(text)"
+        let prompt = "\(settings.summaryPrompt)\n\n\(text)"
         return try await performChatRequest(systemPrompt: "You are a helpful assistant that summarizes articles.", userPrompt: prompt)
     }
     
     func translate(text: String, targetLanguage: String) async throws -> String {
-        let prompt = "Please translate the following article to \(targetLanguage). Maintain the original tone and formatting:\n\n\(text)"
+        var promptTemplate = settings.translationPrompt
+        promptTemplate = promptTemplate.replacingOccurrences(of: "%TARGET_LANGUAGE%", with: targetLanguage)
+        let prompt = "\(promptTemplate)\n\n\(text)"
         return try await performChatRequest(systemPrompt: "You are a helpful assistant that translates articles.", userPrompt: prompt)
+    }
+    
+    func testConnection() async throws -> String {
+        let prompt = "Ping"
+        return try await performChatRequest(systemPrompt: "You are a helpful assistant.", userPrompt: prompt)
     }
     
     private func performChatRequest(systemPrompt: String, userPrompt: String) async throws -> String {

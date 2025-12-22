@@ -14,6 +14,8 @@ final class AISettings: ObservableObject {
         static let aiAutoTranslate = "aiAutoTranslate"
         static let aiRateLimit = "aiRateLimit"
         static let aiApiKey = "aiApiKey"
+        static let aiSummaryPrompt = "aiSummaryPrompt"
+        static let aiTranslationPrompt = "aiTranslationPrompt"
     }
 
     var isEnabled: Bool {
@@ -96,6 +98,22 @@ final class AISettings: ObservableObject {
         case "5/s": return 5.0
         case "Unlimited": return Double.greatestFiniteMagnitude
         default: return 2.0
+        }
+    }
+    
+    var summaryPrompt: String {
+        get { defaults.string(forKey: Keys.aiSummaryPrompt) ?? "Please summarize the following article in a concise manner:" }
+        set {
+            defaults.set(newValue, forKey: Keys.aiSummaryPrompt)
+            objectWillChange.send()
+        }
+    }
+    
+    var translationPrompt: String {
+        get { defaults.string(forKey: Keys.aiTranslationPrompt) ?? "Please translate the following article to %TARGET_LANGUAGE%. Maintain the original tone and formatting:" }
+        set {
+            defaults.set(newValue, forKey: Keys.aiTranslationPrompt)
+            objectWillChange.send()
         }
     }
 }

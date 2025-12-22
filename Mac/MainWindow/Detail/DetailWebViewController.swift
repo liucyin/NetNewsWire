@@ -17,6 +17,11 @@ import Articles
 	func mouseDidExit(_: DetailWebViewController)
 }
 
+struct AIPhrase: Decodable {
+    let id: String
+    let text: String
+}
+
 final class DetailWebViewController: NSViewController {
 
 	weak var delegate: DetailWebViewControllerDelegate?
@@ -357,4 +362,95 @@ private struct ScrollInfo {
 		self.canScrollDown = viewHeight + offsetY < contentHeight
 		self.canScrollUp = offsetY > 0.1
 	}
+}
+
+// MARK: - AI Injection
+extension DetailWebViewController {
+    
+    func injectAISummary(_ text: String) {
+        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+                          .replacingOccurrences(of: "\"", with: "\\\"")
+                          .replacingOccurrences(of: "\n", with: "<br />")
+        
+        let js = """
+        (function() {
+            var summaryDiv = document.getElementById('aiSummary');
+            if (summaryDiv) {
+                summaryDiv.innerHTML = "<strong>AI Summary:</strong><br/>\(escaped)";
+                summaryDiv.style.display = 'block';
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+    
+    // Returns a dictionary of [ID: Text]
+    func prepareForTranslation() async -> [String: String] {
+        let js = """
+        (function() {
+            var nodes = document.querySelectorAll('p, li, blockquote');
+            var result = [];
+            for (var i = 0; i < nodes.length; i++) {
+                var node = nodes[i];
+                if (!node.id) {
+                    node.id = 'ai-p-' + i + '-' + Date.now();
+                }
+                var text = node.innerText.trim();
+                if (text.length > 10) { // arbitrary filter too short texts
+                    result.push({id: node.id, text: text});
+                }
+            }
+            return result;
+        })();
+        """
+        
+        do {
+            guard let result = try await webView.evaluateJavaScript(js) as? [[String: String]] else {
+                return [:]
+            } // Cast to Array of Dicts
+            
+            var map = [String: String]()
+            for item in result {
+                if let id = item["id"], let text = item["text"] {
+                    map[id] = text
+                }
+            }
+            return map
+            
+        } catch {
+            print("AI Translation Prep Error: \(error)")
+            return [:]
+        }
+    }
+    
+    func injectTranslation(id: String, text: String) {
+        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+                          .replacingOccurrences(of: "\"", with: "\\\"")
+                          .replacingOccurrences(of: "\n", with: "<br />")
+        
+        let js = """
+        (function() {
+            var node = document.getElementById('\(id)');
+            if (node) {
+                // Check if already has translation
+                var existing = node.nextElementSibling;
+                if (existing && existing.className == 'ai-translation') {
+                    existing.innerHTML = "\(escaped)";
+                } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-translation';
+                    div.style.color = '#666'; // Secondary color-ish
+                    div.style.fontStyle = 'italic';
+                    div.style.marginTop = '4px';
+                    div.style.marginBottom = '12px';
+                    div.style.paddingLeft = '10px';
+                    div.style.borderLeft = '2px solid var(--accent-color)';
+                    div.innerHTML = "\(escaped)";
+                    node.parentNode.insertBefore(div, node.nextSibling);
+                }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
 }

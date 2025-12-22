@@ -115,6 +115,44 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 		}
 		window.makeFirstResponderUnlessDescendantIsFirstResponder(currentWebViewController.webView)
 	}
+
+    // MARK: - AI
+    func injectAISummary(_ text: String) {
+        currentWebViewController.injectAISummary(text)
+    }
+
+    func performTranslation() async {
+        guard let webVC = currentWebViewController else { return }
+        let map = await webVC.prepareForTranslation()
+        let total = map.count
+        
+        // Progress UI could be added here
+        
+        // Translate in parallel or batches
+        // For simplicity, simple loop with TaskGroup
+        await withTaskGroup(of: (String, String)?.self) { group in
+            for (id, text) in map {
+                group.addTask {
+                    do {
+                        let target = AISettings.shared.outputLanguage
+                        let translation = try await AIService.shared.translate(text: text, targetLanguage: target)
+                        return (id, translation)
+                    } catch {
+                        print("Translation failed for \(id): \(error)")
+                        return nil
+                    }
+                }
+            }
+            
+            for await result in group {
+                if let (id, translation) = result {
+                    await MainActor.run {
+                        webVC.injectTranslation(id: id, text: translation)
+                    }
+                }
+            }
+        }
+    }
 }
 
 // MARK: - DetailWebViewControllerDelegate

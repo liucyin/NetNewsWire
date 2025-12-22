@@ -57,7 +57,7 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
 	}
 	private var searchSmartFeed: SmartFeed? = nil
 	private var restoreArticleWindowScrollY: CGFloat?
-	private var aiPopover: NSPopover?
+	// private var aiPopover: NSPopover? // Removed
 
 	// MARK: - NSWindowController
 
@@ -553,49 +553,45 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
 		guard let article = oneSelectedArticle else { return }
 		
 		if !AISettings.shared.isEnabled {
-			let alert = NSAlert()
-			alert.messageText = "AI Disabled"
-			alert.informativeText = "Please enable AI features in Preferences > AI."
-			alert.runModal()
+			showAIDisabledAlert()
 			return
 		}
-		
-		let text = article.contentText ?? article.summary ?? article.contentHTML ?? ""
-		showAIPopover(for: text, mode: .summary, sender: sender)
+        
+        let text = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+        
+        // Show indeterminate progress?
+        // For now, we fire and forget or show a small HUD? 
+        // We will just start the task.
+        
+        Task {
+            do {
+                let summary = try await AIService.shared.summarize(text: text)
+                await detailViewController?.injectAISummary(summary)
+            } catch {
+                await NSAlert(error: error).runModal()
+            }
+        }
 	}
 
 	@objc func aiTranslate(_ sender: Any?) {
-		guard let article = oneSelectedArticle else { return }
+		guard let _ = oneSelectedArticle else { return }
 		
 		if !AISettings.shared.isEnabled {
-			let alert = NSAlert()
-			alert.messageText = "AI Disabled"
-			alert.informativeText = "Please enable AI features in Preferences > AI."
-			alert.runModal()
+            showAIDisabledAlert()
 			return
 		}
 
-		let text = article.contentText ?? article.summary ?? article.contentHTML ?? ""
-		showAIPopover(for: text, mode: .translation, sender: sender)
+        Task {
+            await detailViewController?.performTranslation()
+        }
 	}
 
-	private func showAIPopover(for text: String, mode: AIMode, sender: Any?) {
-		aiPopover?.close()
-		aiPopover = nil
-		
-		let contentVC = AIPopoverViewController(articleText: text, mode: mode)
-		let popover = NSPopover()
-		popover.contentViewController = contentVC
-		popover.behavior = .transient
-		popover.animates = true
-		popover.contentSize = NSSize(width: 400, height: 300)
-		
-		guard let button = sender as? NSButton else { return }
-		
-		popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-		aiPopover = popover
-	}
-
+    private func showAIDisabledAlert() {
+        let alert = NSAlert()
+        alert.messageText = "AI Disabled"
+        alert.informativeText = "Please enable AI features in Preferences > AI."
+        alert.runModal()
+    }
 }
 
 // MARK: NSWindowDelegate
