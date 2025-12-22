@@ -140,6 +140,7 @@ final class DetailViewController: NSViewController, WKUIDelegate {
              if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
                  do {
                      let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
+                     AICacheManager.shared.saveTitleTranslation(translated, for: article.articleID)
                      webVC.injectTitleTranslation(translated)
                  } catch {
                      print("Title Translation Error: \(error)")
@@ -215,10 +216,20 @@ extension DetailViewController: DetailWebViewControllerDelegate {
             await detailWebViewController.ensureStableIDs(force: true)
             
             // 3. Restore Translation Cache
-            if let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID), !cachedTranslations.isEmpty {
-                for (id, text) in cachedTranslations {
+            let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID)
+            if let params = cachedTranslations, !params.isEmpty {
+                for (id, text) in params {
                     detailWebViewController.injectTranslation(id: id, text: text)
                 }
+            }
+            
+            let cachedTitle = AICacheManager.shared.getTitleTranslation(for: articleID)
+            if let titleText = cachedTitle {
+                detailWebViewController.injectTitleTranslation(titleText)
+            }
+            
+            // If fully cached, return
+            if cachedTranslations != nil && (cachedTitle != nil || !AISettings.shared.autoTranslateTitles) {
                 return
             }
             
@@ -231,7 +242,7 @@ extension DetailViewController: DetailWebViewControllerDelegate {
             
             var didTriggerFullTranslation = false
 
-            if autoTranslateBody {
+            if autoTranslateBody && cachedTranslations == nil {
                 // Use article content (summary or text) for language detection
                 let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
                 if !textSample.isEmpty {
@@ -259,7 +270,7 @@ extension DetailViewController: DetailWebViewControllerDelegate {
             
             // If body translation was not triggered (either disabled or language matched),
             // check if we need to translate just the title.
-            if !didTriggerFullTranslation && autoTranslateTitles {
+            if !didTriggerFullTranslation && autoTranslateTitles && cachedTitle == nil {
                  await performTitleTranslation()
             }
         }
