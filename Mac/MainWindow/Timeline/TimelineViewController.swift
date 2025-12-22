@@ -237,6 +237,9 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		tableView.keyboardDelegate = keyboardDelegate
 
 		tableView.style = .inset
+		
+		
+		NotificationCenter.default.addObserver(self, selector: #selector(timelineLayoutDidChange), name: .TimelineLayoutDidChange, object: nil)
 
 		if !didRegisterForNotifications {
 			NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
@@ -256,6 +259,10 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 			}
 			didRegisterForNotifications = true
 		}
+	}
+
+	@objc func timelineLayoutDidChange(_ note: Notification) {
+		fontSizeDidChange()
 	}
 
 	override func viewDidAppear() {

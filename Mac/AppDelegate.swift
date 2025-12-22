@@ -158,6 +158,17 @@ let appName = "NetNewsWire"
 		catch {
 			Self.logger.error("Failed to start software updater with error: \(error.localizedDescription)")
 		}
+		
+		// Add "Timeline Layout Tuner" to View menu
+		if let mainMenu = NSApplication.shared.mainMenu,
+		   let viewMenu = mainMenu.item(withTitle: "View")?.submenu {
+			
+			// Add separator if needed, or just append
+			viewMenu.addItem(NSMenuItem.separator())
+			
+			let tunerMenuItem = NSMenuItem(title: "Timeline Layout Tuner", action: #selector(showTimelineLayoutTuner(_:)), keyEquivalent: "")
+			viewMenu.addItem(tunerMenuItem)
+		}
 
 		AppDefaults.shared.registerDefaults()
 		let isFirstRun = AppDefaults.shared.isFirstRun
@@ -607,6 +618,17 @@ let appName = "NetNewsWire"
 
 	@IBAction func openTechnotes(_ sender: Any?) {
 		HelpURL.technotes.open()
+	}
+
+	// MARK: - Layout Tuner
+	
+	var timelineLayoutTunerWindowController: NSWindowController?
+
+	@objc func showTimelineLayoutTuner(_ sender: Any?) {
+		if timelineLayoutTunerWindowController == nil {
+			timelineLayoutTunerWindowController = TimelineLayoutTunerWindowController()
+		}
+		timelineLayoutTunerWindowController?.showWindow(self)
 	}
 
 	@IBAction func openRepository(_ sender: Any?) {
