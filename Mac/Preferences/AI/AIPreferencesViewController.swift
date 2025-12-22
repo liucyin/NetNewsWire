@@ -135,7 +135,18 @@ final class AIPreferencesViewController: NSViewController {
         tv.isEditable = true
         tv.isSelectable = true
         tv.allowsUndo = true
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.containerSize = NSSize(width: 1000, height: CGFloat.greatestFiniteMagnitude)
         return tv
+    }()
+    
+    private lazy var resetSummaryButton: NSButton = {
+        let btn = NSButton(title: "Reset to Default", target: self, action: #selector(resetSummaryPrompt(_:)))
+        btn.bezelStyle = .rounded
+        return btn
     }()
     
     // MARK: - Translation UI Components
@@ -161,7 +172,18 @@ final class AIPreferencesViewController: NSViewController {
         tv.isEditable = true
         tv.isSelectable = true
         tv.allowsUndo = true
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.containerSize = NSSize(width: 1000, height: CGFloat.greatestFiniteMagnitude)
         return tv
+    }()
+    
+    private lazy var resetTranslationButton: NSButton = {
+        let btn = NSButton(title: "Reset to Default", target: self, action: #selector(resetTranslationPrompt(_:)))
+        btn.bezelStyle = .rounded
+        return btn
     }()
 
     private lazy var autoTranslateCheckbox: NSButton = {
@@ -227,10 +249,15 @@ final class AIPreferencesViewController: NSViewController {
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .bezelBorder
         
-        let stack = NSStackView(views: [label, scrollView])
+        let headerStack = NSStackView(views: [label, resetSummaryButton])
+        headerStack.distribution = .fillProportionally
+        headerStack.spacing = 8
+        
+        let stack = NSStackView(views: [headerStack, scrollView])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.spacing = 8
         
         view.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -239,6 +266,8 @@ final class AIPreferencesViewController: NSViewController {
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
             scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            // ensure text view uses full width
+            summaryPromptField.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
             scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 200)
         ])
     }
@@ -258,7 +287,10 @@ final class AIPreferencesViewController: NSViewController {
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
 
-        let stack = NSStackView(views: [grid, labelPrompt, scrollView])
+        let headerStack = NSStackView(views: [labelPrompt, resetTranslationButton])
+        headerStack.spacing = 8
+
+        let stack = NSStackView(views: [grid, headerStack, scrollView])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -271,8 +303,21 @@ final class AIPreferencesViewController: NSViewController {
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
             scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            translationPromptField.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
             scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
         ])
+    }
+    
+    // ...
+    
+    @objc private func resetSummaryPrompt(_ sender: NSButton) {
+        settings.resetSummaryPrompt()
+        summaryPromptField.string = settings.summaryPrompt
+    }
+    
+    @objc private func resetTranslationPrompt(_ sender: NSButton) {
+        settings.resetTranslationPrompt()
+        translationPromptField.string = settings.translationPrompt
     }
     
     private func createSectionLabel(_ text: String) -> NSTextField {

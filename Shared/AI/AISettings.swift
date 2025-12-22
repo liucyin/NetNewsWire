@@ -116,4 +116,13 @@ final class AISettings: ObservableObject {
             objectWillChange.send()
         }
     }
+    func resetSummaryPrompt() {
+        defaults.removeObject(forKey: Keys.aiSummaryPrompt)
+        objectWillChange.send()
+    }
+    
+    func resetTranslationPrompt() {
+        defaults.removeObject(forKey: Keys.aiTranslationPrompt)
+        objectWillChange.send()
+    }
 }
