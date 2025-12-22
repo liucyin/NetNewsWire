@@ -548,6 +548,32 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
 		ArticleThemesManager.shared.currentThemeName = menuItem.title
 	}
 
+	@objc func aiSummary(_ sender: Any?) {
+		guard let article = oneSelectedArticle else { return }
+		// Placeholder for AI Service
+		// In a real implementation, this would call AIService.shared.summarize(article)
+		let alert = NSAlert()
+		alert.messageText = "AI Configuration"
+		if !AISettings.shared.isEnabled {
+			alert.informativeText = "AI features are disabled. Please enable them in Preferences > AI."
+		} else {
+			alert.informativeText = "Requesting Summary for: \(article.title ?? "Article")\nUsing Provider: \(AISettings.shared.provider)"
+		}
+		alert.runModal()
+	}
+
+	@objc func aiTranslate(_ sender: Any?) {
+		guard let article = oneSelectedArticle else { return }
+		let alert = NSAlert()
+		alert.messageText = "AI Configuration"
+		if !AISettings.shared.isEnabled {
+			alert.informativeText = "AI features are disabled. Please enable them in Preferences > AI."
+		} else {
+			alert.informativeText = "Requesting Translation for: \(article.title ?? "Article")\nTarget Language: \(AISettings.shared.outputLanguage)"
+		}
+		alert.runModal()
+	}
+
 }
 
 // MARK: NSWindowDelegate
@@ -771,6 +797,8 @@ extension NSToolbarItem.Identifier {
 	static let share = NSToolbarItem.Identifier("share")
 	static let articleThemeMenu = NSToolbarItem.Identifier("articleThemeMenu")
 	static let cleanUp = NSToolbarItem.Identifier("cleanUp")
+	static let aiSummary = NSToolbarItem.Identifier("aiSummary")
+	static let aiTranslate = NSToolbarItem.Identifier("aiTranslate")
 }
 
 extension MainWindowController: NSToolbarDelegate {
@@ -852,6 +880,16 @@ extension MainWindowController: NSToolbarDelegate {
 			let title = NSLocalizedString("Clean Up", comment: "Clean Up")
 			return buildToolbarButton(.cleanUp, title, Assets.Images.cleanUp, "cleanUp:")
 
+		case .aiSummary:
+			let title = NSLocalizedString("AI Summary", comment: "AI Summary")
+			let image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "AI Summary") ?? NSImage()
+			return buildToolbarButton(.aiSummary, title, image, "aiSummary:")
+
+		case .aiTranslate:
+			let title = NSLocalizedString("AI Translate", comment: "AI Translate")
+			let image = NSImage(systemSymbolName: "translate", accessibilityDescription: "AI Translate") ?? NSImage()
+			return buildToolbarButton(.aiTranslate, title, image, "aiTranslate:")
+
 		default:
 			break
 		}
@@ -877,7 +915,9 @@ extension MainWindowController: NSToolbarDelegate {
 			.share,
 			.articleThemeMenu,
 			.search,
-			.cleanUp
+			.cleanUp,
+			.aiSummary,
+			.aiTranslate
 		]
 	}
 
@@ -897,6 +937,8 @@ extension MainWindowController: NSToolbarDelegate {
 			.readerView,
 			.share,
 			.openInBrowser,
+			.aiSummary,
+			.aiTranslate,
 			.flexibleSpace,
 			.search
 		]
