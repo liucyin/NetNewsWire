@@ -22,6 +22,17 @@ final class TimelineTableCellView: NSTableCellView {
 
 	private var starView = TimelineTableCellView.imageView(with: Assets.Images.timelineStarUnselected, scaling: .scaleNone)
 
+	private lazy var articleThumbnailView: NSImageView = {
+		let imageView = NSImageView(frame: NSRect.zero)
+		imageView.animates = false
+		imageView.imageAlignment = .alignCenter
+		imageView.imageScaling = .scaleProportionallyUpOrDown
+		imageView.wantsLayer = true
+		imageView.layer?.cornerRadius = 6.0
+		imageView.layer?.masksToBounds = true
+		return imageView
+	}()
+
 	private lazy var textFields = {
 		return [self.dateView, self.feedNameView, self.titleView, self.summaryView, self.textView]
 	}()
@@ -107,6 +118,7 @@ final class TimelineTableCellView: NSTableCellView {
 		feedNameView.setFrame(ifNotEqualTo: layoutRects.feedNameRect)
 		iconView.setFrame(ifNotEqualTo: layoutRects.iconImageRect)
 		starView.setFrame(ifNotEqualTo: layoutRects.starRect)
+		articleThumbnailView.setFrame(ifNotEqualTo: layoutRects.articleThumbnailRect)
 	}
 }
 
@@ -189,6 +201,7 @@ private extension TimelineTableCellView {
 		addSubviewAtInit(feedNameView, hidden: true)
 		addSubviewAtInit(iconView, hidden: true)
 		addSubviewAtInit(starView, hidden: true)
+		addSubviewAtInit(articleThumbnailView, hidden: true)
 
 		makeTextFieldColorsNormal()
 	}
@@ -303,6 +316,30 @@ private extension TimelineTableCellView {
 		shouldHide ? hideView(view) : showView(view)
 	}
 
+	func updateArticleThumbnail() {
+		guard AppDefaults.shared.timelineShowsArticleThumbnails,
+			  let imageURL = cellData?.articleImageURL else {
+			hideView(articleThumbnailView)
+			articleThumbnailView.image = nil
+			return
+		}
+
+		if let imageData = ImageDownloader.shared.image(for: imageURL) {
+			if let image = NSImage(data: imageData) {
+				showView(articleThumbnailView)
+				articleThumbnailView.image = image
+				needsLayout = true
+			} else {
+				hideView(articleThumbnailView)
+				articleThumbnailView.image = nil
+			}
+		} else {
+			// Image not yet downloaded, hide for now
+			hideView(articleThumbnailView)
+			articleThumbnailView.image = nil
+		}
+	}
+
 	func updateSubviews() {
 		updateTitleView()
 		updateSummaryView()
@@ -312,5 +349,6 @@ private extension TimelineTableCellView {
 		updateUnreadIndicator()
 		updateStarView()
 		updateIcon()
+		updateArticleThumbnail()
 	}
 }

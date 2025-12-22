@@ -248,6 +248,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 			NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChange(_:)), name: .UserDidAddAccount, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChange(_:)), name: .UserDidDeleteAccount, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(containerChildrenDidChange(_:)), name: .ChildrenDidChange, object: nil)
+			NotificationCenter.default.addObserver(self, selector: #selector(imageDidBecomeAvailable(_:)), name: .imageDidBecomeAvailable, object: nil)
 			NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
 				Task { @MainActor in
 					self?.userDefaultsDidChange()
@@ -740,6 +741,23 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		fontSize = AppDefaults.shared.timelineFontSize
 		sortDirection = AppDefaults.shared.timelineSortDirection
 		groupByFeed = AppDefaults.shared.timelineGroupByFeed
+	}
+
+	@objc func imageDidBecomeAvailable(_ note: Notification) {
+		guard AppDefaults.shared.timelineShowsArticleThumbnails,
+			  let imageURL = note.userInfo?[UserInfoKey.url] as? String else {
+			return
+		}
+
+		let indexesToReload = tableView.indexesOfAvailableRowsPassingTest { (row) -> Bool in
+			guard let article = articles.articleAtRow(row) else {
+				return false
+			}
+			return article.imageLink == imageURL
+		}
+		if let indexesToReload = indexesToReload {
+			reloadCells(for: indexesToReload)
+		}
 	}
 
 	// MARK: - Reloading Data

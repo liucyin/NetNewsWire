@@ -44,6 +44,8 @@ final class AppDefaults: Sendable {
 		static let currentThemeName = "currentThemeName"
 		static let articleContentJavascriptEnabled = "articleContentJavascriptEnabled"
 
+		static let timelineShowsArticleThumbnails = "timelineShowsArticleThumbnails"
+
 		// Hidden prefs
 		static let showDebugMenu = "ShowDebugMenu"
 		static let timelineShowsSeparators = "CorreiaSeparators"
@@ -288,6 +290,15 @@ final class AppDefaults: Sendable {
 		return AppDefaults.bool(for: Key.timelineShowsSeparators)
 	}
 
+	var timelineShowsArticleThumbnails: Bool {
+		get {
+			return AppDefaults.bool(for: Key.timelineShowsArticleThumbnails)
+		}
+		set {
+			AppDefaults.setBool(for: Key.timelineShowsArticleThumbnails, newValue)
+		}
+	}
+
 	var articleTextSize: ArticleTextSize {
 		get {
 			let rawValue = UserDefaults.standard.integer(forKey: Key.articleTextSize)
@@ -334,7 +345,8 @@ final class AppDefaults: Sendable {
 			Key.refreshInterval: RefreshInterval.everyHour.rawValue,
 			Key.showDebugMenu: showDebugMenu,
 			Key.currentThemeName: Self.defaultThemeName,
-			Key.articleContentJavascriptEnabled: true
+			Key.articleContentJavascriptEnabled: true,
+			Key.timelineShowsArticleThumbnails: true
 		]
 
 		UserDefaults.standard.register(defaults: defaults)
