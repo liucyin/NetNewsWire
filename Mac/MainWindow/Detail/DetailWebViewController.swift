@@ -448,8 +448,7 @@ extension DetailWebViewController {
         
         return html
     }
-}
-    
+
     // Returns a dictionary of [ID: Text]
     func prepareForTranslation() async -> [String: String] {
         let js = """
