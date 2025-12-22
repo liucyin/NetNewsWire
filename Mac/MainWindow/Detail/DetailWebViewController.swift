@@ -427,23 +427,36 @@ extension DetailWebViewController {
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
         
-        // Headers (### Heading)
+        // Headers (### Heading) - Order matters (match longest first)
+        html = html.replacingOccurrences(of: #"(?m)^######\s+(.+)$"#, with: "<h6>$1</h6>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^#####\s+(.+)$"#, with: "<h5>$1</h5>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^####\s+(.+)$"#, with: "<h4>$1</h4>", options: .regularExpression)
         html = html.replacingOccurrences(of: #"(?m)^###\s+(.+)$"#, with: "<h3>$1</h3>", options: .regularExpression)
         html = html.replacingOccurrences(of: #"(?m)^##\s+(.+)$"#, with: "<h2>$1</h2>", options: .regularExpression)
         html = html.replacingOccurrences(of: #"(?m)^#\s+(.+)$"#, with: "<h1>$1</h1>", options: .regularExpression)
         
+        // Blockquotes (> text)
+        html = html.replacingOccurrences(of: #"(?m)^>\s+(.+)$"#, with: "<blockquote>$1</blockquote>", options: .regularExpression)
+        
         // Bold (**text**)
         html = html.replacingOccurrences(of: #"\*\*(.+?)\*\*"#, with: "<strong>$1</strong>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"\_\_(.+?)\_\_"#, with: "<strong>$1</strong>", options: .regularExpression)
         
         // Italic (*text*)
         html = html.replacingOccurrences(of: #"\*(.+?)\*"#, with: "<em>$1</em>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"\b_([^_]+)_\b"#, with: "<em>$1</em>", options: .regularExpression)
         
-        // Lists (- item)
-        html = html.replacingOccurrences(of: #"(?m)^-\s+(.+)$"#, with: "<li>$1</li>", options: .regularExpression)
+        // Lists (- item or * item) - handle optional indentation
+        html = html.replacingOccurrences(of: #"(?m)^\s*[-*]\s+(.+)$"#, with: "<li>$1</li>", options: .regularExpression)
         
-        // Wrap lists (simplified: convert sequence of li to ul - might be too complex for regex, just leave as li with breaks or rely on styling)
-        // Better: just replace newlines with <br> if not a block element
-        
+        // Code blocks (```code```) - simplified (inline or multiline)
+        // Note: Real multiline code block handling with regex is tricky without state, but strict replacement of ```...``` might work for simple cases.
+        // Let's rely on basic `code` tag.
+        html = html.replacingOccurrences(of: #"```([^`]+)```"#, with: "<pre><code>$1</code></pre>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"`([^`]+)`"#, with: "<code>$1</code>", options: .regularExpression)
+
+        // Newlines to <br>, but avoid double spacing after block elements if possible.
+        // Simple approach: just convert all \n to <br>. Browser ignores <br> after block elements often anyway or adds space.
         html = html.replacingOccurrences(of: "\n", with: "<br>")
         
         return html
