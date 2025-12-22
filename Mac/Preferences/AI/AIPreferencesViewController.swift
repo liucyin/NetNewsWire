@@ -302,6 +302,12 @@ final class AIPreferencesViewController: NSViewController {
         return field
     }()
 
+    private lazy var clearTranslationCacheButton: NSButton = {
+        let btn = NSButton(title: "Clear Translation Cache", target: self, action: #selector(clearTranslationCache(_:)))
+        btn.bezelStyle = .rounded
+        return btn
+    }()
+
     private func setupTranslationUI(in view: NSView) {
         let labelPrompt = NSTextField(labelWithString: "Translation System Prompt (%TARGET_LANGUAGE% will be replaced):")
         
