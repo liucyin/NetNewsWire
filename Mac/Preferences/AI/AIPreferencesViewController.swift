@@ -204,6 +204,12 @@ final class AIPreferencesViewController: NSViewController {
         return button
     }()
 
+    private lazy var autoTranslateTitlesCheckbox: NSButton = {
+        let button = NSButton(checkboxWithTitle: "Auto translate titles (if non-target language)", target: self, action: #selector(toggleAutoTranslateTitles(_:)))
+        button.state = settings.autoTranslateTitles ? .on : .off
+        return button
+    }()
+
     // MARK: - Lifecycle
     override func loadView() {
         let view = NSView()
@@ -354,7 +360,8 @@ final class AIPreferencesViewController: NSViewController {
         let topGrid = NSGridView(views: [
             [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
             [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup],
-            [NSGridCell.emptyContentView, autoTranslateCheckbox]
+            [NSGridCell.emptyContentView, autoTranslateCheckbox],
+            [NSGridCell.emptyContentView, autoTranslateTitlesCheckbox]
         ])
         topGrid.rowSpacing = 8
         topGrid.column(at: 0).xPlacement = .trailing
@@ -496,6 +503,7 @@ final class AIPreferencesViewController: NSViewController {
     @objc private func toggleEnable(_ sender: NSButton) { settings.isEnabled = (sender.state == .on) }
     @objc private func languageChanged(_ sender: NSPopUpButton) { settings.outputLanguage = sender.titleOfSelectedItem ?? "English" }
     @objc private func toggleAutoTranslate(_ sender: NSButton) { settings.autoTranslate = (sender.state == .on) }
+    @objc private func toggleAutoTranslateTitles(_ sender: NSButton) { settings.autoTranslateTitles = (sender.state == .on) }
     
     @objc private func resetSummaryPrompt() {
         settings.resetSummaryPrompt()

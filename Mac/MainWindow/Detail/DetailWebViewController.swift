@@ -463,11 +463,11 @@ extension DetailWebViewController {
     func injectTranslation(id: String, text: String) {
         let html = markdownToHTML(text)
         
-        // Safely encode for JS injection
-        let jsonHtml = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
-        let jsonId = (try? String(data: JSONEncoder().encode(id), encoding: .utf8)) ?? "\"\""
-        
-        let js = """
+		// Safely encode for JS injection
+		let jsonHtml = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
+		let jsonId = (try? String(data: JSONEncoder().encode(id), encoding: .utf8)) ?? "\"\""
+		
+		let js = """
         (function() {
             var node = document.getElementById(\(jsonId));
             if (node) {

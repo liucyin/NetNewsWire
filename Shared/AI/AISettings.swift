@@ -37,6 +37,7 @@ final class AISettings: ObservableObject {
         static let aiTranslationProfileID = "aiTranslationProfileID"
         static let aiTargetLanguage = "aiTargetLanguage"
         static let aiAutoTranslate = "aiAutoTranslate"
+        static let aiAutoTranslateTitles = "aiAutoTranslateTitles"
         
         static let aiSummaryPrompt = "aiSummaryPrompt"
         static let aiTranslationPrompt = "aiTranslationPrompt"
@@ -191,6 +192,14 @@ final class AISettings: ObservableObject {
         get { defaults.bool(forKey: Keys.aiAutoTranslate) }
         set {
             defaults.set(newValue, forKey: Keys.aiAutoTranslate)
+            objectWillChange.send()
+        }
+    }
+
+    var autoTranslateTitles: Bool {
+        get { defaults.bool(forKey: Keys.aiAutoTranslateTitles) }
+        set {
+            defaults.set(newValue, forKey: Keys.aiAutoTranslateTitles)
             objectWillChange.send()
         }
     }

@@ -128,11 +128,29 @@ final class DetailViewController: NSViewController, WKUIDelegate {
     func performTranslation() async {
         guard let webVC = currentWebViewController, let article = webVC.article else { return }
         
-        // If cache exists (and not cleared by caller), use it?
-        // Caller (MainWindowController) clears it if it's a "Regenerate" action.
-        // If this is called from Auto-translate, we should check cache first?
-        // Auto-translate logic in DidFinishLoad checks cache. If missing, it calls this.
-        // So here we assume we need to translate.
+        // Translate Title if enabled (Parallel Task)
+        if AISettings.shared.autoTranslateTitles {
+            let title = article.title ?? ""
+            if !title.isEmpty {
+                Task {
+                    let recognizer = NLLanguageRecognizer()
+                    recognizer.processString(title)
+                    if let dominant = recognizer.dominantLanguage {
+                        let targetLang = AISettings.shared.outputLanguage
+                        let targetIso = isoCode(for: targetLang)
+                        
+                        if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
+                            do {
+                                let translated = try await AIService.shared.translate(text: title)
+                                await webVC.injectTitleTranslation(translated)
+                            } catch {
+                                print("Title Translation Error: \(error)")
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         let map = await webVC.prepareForTranslation()
         // let total = map.count
