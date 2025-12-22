@@ -110,9 +110,10 @@ final class AIPreferencesViewController: NSViewController {
     }()
     
     private lazy var connectionStatusLabel: NSTextField = {
-        let label = NSTextField(labelWithString: "")
+        let label = NSTextField(wrappingLabelWithString: "")
         label.textColor = .secondaryLabelColor
         label.font = NSFont.systemFont(ofSize: 11)
+        label.preferredMaxLayoutWidth = 350
         return label
     }()
 
