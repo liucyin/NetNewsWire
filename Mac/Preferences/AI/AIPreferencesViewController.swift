@@ -289,6 +289,11 @@ final class AIPreferencesViewController: NSViewController {
     @objc private func rateLimitChanged(_ sender: NSPopUpButton) { settings.rateLimit = sender.titleOfSelectedItem ?? "2/s" }
     
     @objc private func testConnection(_ sender: NSButton) {
+        // Force update settings from UI to ensure we have the latest values
+        settings.apiKey = apiKeyField.stringValue
+        settings.baseURL = baseURLField.stringValue
+        settings.model = modelField.stringValue
+        
         connectionStatusLabel.stringValue = "Testing..."
         connectionStatusLabel.textColor = .secondaryLabelColor
         sender.isEnabled = false
