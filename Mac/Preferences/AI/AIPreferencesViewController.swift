@@ -310,7 +310,7 @@ final class AIPreferencesViewController: NSViewController {
         ])
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
-        grid.column(at: 2).width = 300 // ensure width for api key field if needed, but NSSecureTextField constraints better
+        // grid.column(at: 2) does not exist (only 2 columns created from 2-element rows)
 
         let headerStack = NSStackView(views: [labelPrompt, resetTranslationButton])
         headerStack.spacing = 8

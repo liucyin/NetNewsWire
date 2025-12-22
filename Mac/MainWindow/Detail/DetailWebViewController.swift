@@ -369,9 +369,10 @@ private struct ScrollInfo {
 extension DetailWebViewController {
     
     func injectAISummary(_ text: String) {
-        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+        let html = markdownToHTML(text)
+        let escaped = html.replacingOccurrences(of: "\\", with: "\\\\")
                           .replacingOccurrences(of: "\"", with: "\\\"")
-                          .replacingOccurrences(of: "\n", with: "<br />")
+                          .replacingOccurrences(of: "\n", with: "") // markdownToHTML handles newlines
         
         let js = """
         (function() {
@@ -384,6 +385,70 @@ extension DetailWebViewController {
         """
         webView.evaluateJavaScript(js)
     }
+    
+    // ... (prepareForTranslation stays same) ...
+    
+    func injectTranslation(id: String, text: String) {
+        let html = markdownToHTML(text)
+        let escaped = html.replacingOccurrences(of: "\\", with: "\\\\")
+                          .replacingOccurrences(of: "\"", with: "\\\"")
+                          .replacingOccurrences(of: "\n", with: "")
+        
+        let js = """
+        (function() {
+            var node = document.getElementById('\(id)');
+            if (node) {
+                // Check if already has translation
+                var existing = node.nextElementSibling;
+                if (existing && existing.className == 'ai-translation') {
+                    existing.innerHTML = "\(escaped)";
+                } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-translation';
+                    div.style.color = '#666'; 
+                    div.style.fontStyle = 'italic';
+                    div.style.marginTop = '4px';
+                    div.style.marginBottom = '12px';
+                    div.style.paddingLeft = '10px';
+                    div.style.borderLeft = '2px solid var(--accent-color)';
+                    div.innerHTML = "\(escaped)";
+                    node.parentNode.insertBefore(div, node.nextSibling);
+                }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+    
+    private func markdownToHTML(_ text: String) -> String {
+        // Simple regex-based markdown parser
+        var html = text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        
+        // Headers (### Heading)
+        html = html.replacingOccurrences(of: #"^###\s+(.+)$"#, with: "<h3>$1</h3>", options: [.regularExpression, .anchorsMatchLines])
+        html = html.replacingOccurrences(of: #"^##\s+(.+)$"#, with: "<h2>$1</h2>", options: [.regularExpression, .anchorsMatchLines])
+        html = html.replacingOccurrences(of: #"^#\s+(.+)$"#, with: "<h1>$1</h1>", options: [.regularExpression, .anchorsMatchLines])
+        
+        // Bold (**text**)
+        html = html.replacingOccurrences(of: #"\*\*(.+?)\*\*"#, with: "<strong>$1</strong>", options: .regularExpression)
+        
+        // Italic (*text*)
+        html = html.replacingOccurrences(of: #"\*(.+?)\*"#, with: "<em>$1</em>", options: .regularExpression)
+        
+        // Lists (- item)
+        html = html.replacingOccurrences(of: #"^-\s+(.+)$"#, with: "<li>$1</li>", options: [.regularExpression, .anchorsMatchLines])
+        
+        // Wrap lists (simplified: convert sequence of li to ul - might be too complex for regex, just leave as li with breaks or rely on styling)
+        // Better: just replace newlines with <br> if not a block element
+        
+        html = html.replacingOccurrences(of: "\n", with: "<br>")
+        
+        return html
+    }
+}
     
     // Returns a dictionary of [ID: Text]
     func prepareForTranslation() async -> [String: String] {
@@ -436,34 +501,5 @@ extension DetailWebViewController {
         }
     }
     
-    func injectTranslation(id: String, text: String) {
-        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
-                          .replacingOccurrences(of: "\"", with: "\\\"")
-                          .replacingOccurrences(of: "\n", with: "<br />")
-        
-        let js = """
-        (function() {
-            var node = document.getElementById('\(id)');
-            if (node) {
-                // Check if already has translation
-                var existing = node.nextElementSibling;
-                if (existing && existing.className == 'ai-translation') {
-                    existing.innerHTML = "\(escaped)";
-                } else {
-                    var div = document.createElement('div');
-                    div.className = 'ai-translation';
-                    div.style.color = '#666'; // Secondary color-ish
-                    div.style.fontStyle = 'italic';
-                    div.style.marginTop = '4px';
-                    div.style.marginBottom = '12px';
-                    div.style.paddingLeft = '10px';
-                    div.style.borderLeft = '2px solid var(--accent-color)';
-                    div.innerHTML = "\(escaped)";
-                    node.parentNode.insertBefore(div, node.nextSibling);
-                }
-            }
-        })();
-        """
-        webView.evaluateJavaScript(js)
-    }
+    // (removed duplicate injectTranslation)
 }

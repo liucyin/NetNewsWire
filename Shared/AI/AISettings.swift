@@ -133,8 +133,18 @@ final class AISettings: ObservableObject {
         }
     }
     
+    // User requested prompt logic
     var translationPrompt: String {
-        get { defaults.string(forKey: Keys.aiTranslationPrompt) ?? "Please translate the following text to %TARGET_LANGUAGE%. Maintain the original tone. Output your response as a single HTML snippet (using <b>, <i>, <br> tags). Do NOT use Markdown. Do NOT translate URLs, code blocks, or technical terms that should remain in English." }
+        get { defaults.string(forKey: Keys.aiTranslationPrompt) ?? """
+You are a professional translator who needs to fluently translate text into %TARGET_LANGUAGE%.
+
+## Translation Rules
+1. Output only the translated content, without explanations or additional content.
+2. The returned translation must maintain exactly the same number of paragraphs as the original text.
+3. If the text contains HTML tags, consider where the tags should be placed in the translation while maintaining fluency.
+4. For content that should not be translated (such as proper nouns, code, etc.), keep the original text.
+5. Use Markdown for formatting (bold, italic, etc) if necessary.
+""" }
         set {
             defaults.set(newValue, forKey: Keys.aiTranslationPrompt)
             objectWillChange.send()
