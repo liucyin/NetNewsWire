@@ -428,9 +428,9 @@ extension DetailWebViewController {
             .replacingOccurrences(of: ">", with: "&gt;")
         
         // Headers (### Heading)
-        html = html.replacingOccurrences(of: #"^###\s+(.+)$"#, with: "<h3>$1</h3>", options: [.regularExpression, .anchorsMatchLines])
-        html = html.replacingOccurrences(of: #"^##\s+(.+)$"#, with: "<h2>$1</h2>", options: [.regularExpression, .anchorsMatchLines])
-        html = html.replacingOccurrences(of: #"^#\s+(.+)$"#, with: "<h1>$1</h1>", options: [.regularExpression, .anchorsMatchLines])
+        html = html.replacingOccurrences(of: #"(?m)^###\s+(.+)$"#, with: "<h3>$1</h3>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^##\s+(.+)$"#, with: "<h2>$1</h2>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^#\s+(.+)$"#, with: "<h1>$1</h1>", options: .regularExpression)
         
         // Bold (**text**)
         html = html.replacingOccurrences(of: #"\*\*(.+?)\*\*"#, with: "<strong>$1</strong>", options: .regularExpression)
@@ -439,7 +439,7 @@ extension DetailWebViewController {
         html = html.replacingOccurrences(of: #"\*(.+?)\*"#, with: "<em>$1</em>", options: .regularExpression)
         
         // Lists (- item)
-        html = html.replacingOccurrences(of: #"^-\s+(.+)$"#, with: "<li>$1</li>", options: [.regularExpression, .anchorsMatchLines])
+        html = html.replacingOccurrences(of: #"(?m)^-\s+(.+)$"#, with: "<li>$1</li>", options: .regularExpression)
         
         // Wrap lists (simplified: convert sequence of li to ul - might be too complex for regex, just leave as li with breaks or rely on styling)
         // Better: just replace newlines with <br> if not a block element
