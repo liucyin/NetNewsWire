@@ -138,14 +138,12 @@ final class DetailViewController: NSViewController, WKUIDelegate {
              let targetLang = AISettings.shared.outputLanguage
              let targetIso = isoCode(for: targetLang)
              
-             if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
-                 do {
-                     let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
+                     // Use centralised fetch/task manager
+                     let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
                      
                      // Verify context matches the original request
                      guard webVC.article?.articleID == articleID else { return }
                      
-                     AICacheManager.shared.saveTitleTranslation(translated, for: articleID)
                      webVC.injectTitleTranslation(translated)
                  } catch {
                      print("Title Translation Error: \(error)")

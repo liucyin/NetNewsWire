@@ -13,6 +13,7 @@ final class AICacheManager {
     private var summaryCache: [String: String]
     private var translationCache: [String: [String: String]] // ArticleID -> [NodeID: TranslatedText]
     private var titleTranslationCache: [String: String] // ArticleID -> TranslatedTitle
+    private var activeTitleTasks: [String: Task<String, Error>] = [:]
     
     private init() {
         self.summaryCache = defaults.dictionary(forKey: summaryKey) as? [String: String] ?? [:]
@@ -41,6 +42,40 @@ final class AICacheManager {
     // MARK: - Title Translation
     func getTitleTranslation(for articleID: String) -> String? {
         return titleTranslationCache[articleID]
+    }
+    
+    @MainActor
+    func fetchOrTranslateTitle(articleID: String, title: String, targetLang: String) async throws -> String {
+        // 1. Check persistent cache
+        if let cached = getTitleTranslation(for: articleID) {
+            return cached
+        }
+        
+        // 2. Check in-flight task
+        if let existingTask = activeTitleTasks[articleID] {
+            return try await existingTask.value
+        }
+        
+        // 3. Create new task
+        let task = Task {
+            let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
+            // Save to cache (on MainActor to be safe with this non-actor class)
+            await MainActor.run {
+                self.saveTitleTranslation(translated, for: articleID)
+            }
+            return translated
+        }
+        
+        activeTitleTasks[articleID] = task
+        
+        do {
+            let result = try await task.value
+            activeTitleTasks[articleID] = nil
+            return result
+        } catch {
+            activeTitleTasks[articleID] = nil
+            throw error
+        }
     }
     
     func saveTitleTranslation(_ text: String, for articleID: String) {
