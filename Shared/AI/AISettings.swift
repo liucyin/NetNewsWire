@@ -1,6 +1,25 @@
 
 import Foundation
 
+struct AIProviderProfile: Codable, Identifiable, Hashable {
+    var id: UUID
+    var name: String
+    var baseURL: String
+    var apiKey: String
+    var model: String
+    var rateLimit: String // "2/s", etc.
+    
+    // Default initializer
+    init(id: UUID = UUID(), name: String, baseURL: String, apiKey: String, model: String, rateLimit: String) {
+        self.id = id
+        self.name = name
+        self.baseURL = baseURL
+        self.apiKey = apiKey
+        self.model = model
+        self.rateLimit = rateLimit
+    }
+}
+
 final class AISettings: ObservableObject {
     static let shared = AISettings()
     private let defaults = UserDefaults.standard
@@ -13,15 +32,21 @@ final class AISettings: ObservableObject {
 
     struct Keys {
         static let aiEnabled = "aiEnabled"
+        static let aiProfiles = "aiProfiles"
+        static let aiSummaryProfileID = "aiSummaryProfileID"
+        static let aiTranslationProfileID = "aiTranslationProfileID"
+        static let aiTargetLanguage = "aiTargetLanguage"
+        static let aiAutoTranslate = "aiAutoTranslate"
+        
+        static let aiSummaryPrompt = "aiSummaryPrompt"
+        static let aiTranslationPrompt = "aiTranslationPrompt"
+        
+        // Legacy keys for migration
         static let aiProvider = "aiProvider"
         static let aiBaseURL = "aiBaseURL"
         static let aiModel = "aiModel"
-        static let aiTargetLanguage = "aiTargetLanguage"
-        static let aiAutoTranslate = "aiAutoTranslate"
         static let aiRateLimit = "aiRateLimit"
         static let aiApiKey = "aiApiKey"
-        static let aiSummaryPrompt = "aiSummaryPrompt"
-        static let aiTranslationPrompt = "aiTranslationPrompt"
     }
 
     var isEnabled: Bool {
@@ -31,38 +56,129 @@ final class AISettings: ObservableObject {
             objectWillChange.send()
         }
     }
-
-    var provider: String {
-        get { defaults.string(forKey: Keys.aiProvider) ?? "OpenAI" }
-        set {
-            defaults.set(newValue, forKey: Keys.aiProvider)
-            objectWillChange.send()
+    
+    // MARK: - Profiles
+    
+    @Published var profiles: [AIProviderProfile] = [] {
+        didSet {
+            saveProfiles()
         }
     }
-
-    var baseURL: String {
+    
+    var summaryProfileID: UUID? {
         get {
-            let url = defaults.string(forKey: Keys.aiBaseURL) ?? ""
-            return url.isEmpty ? "https://api.openai.com/v1" : url
+            if let str = defaults.string(forKey: Keys.aiSummaryProfileID), let uuid = UUID(uuidString: str) {
+                return uuid
+            }
+            return profiles.first?.id
         }
         set {
-            defaults.set(newValue, forKey: Keys.aiBaseURL)
+            defaults.set(newValue?.uuidString, forKey: Keys.aiSummaryProfileID)
             objectWillChange.send()
         }
     }
-
-    var model: String {
+    
+    var translationProfileID: UUID? {
         get {
-            let m = defaults.string(forKey: Keys.aiModel) ?? ""
-            return m.isEmpty ? "gpt-4o-mini" : m
+            if let str = defaults.string(forKey: Keys.aiTranslationProfileID), let uuid = UUID(uuidString: str) {
+                return uuid
+            }
+            return profiles.first?.id
         }
         set {
-            defaults.set(newValue, forKey: Keys.aiModel)
+            defaults.set(newValue?.uuidString, forKey: Keys.aiTranslationProfileID)
             objectWillChange.send()
         }
     }
+    
+    init() {
+        loadProfiles()
+    }
+    
+    private func loadProfiles() {
+        if let data = defaults.data(forKey: Keys.aiProfiles),
+           let decoded = try? JSONDecoder().decode([AIProviderProfile].self, from: data),
+           !decoded.isEmpty {
+            self.profiles = decoded
+        } else {
+            // Migrate legacy settings if no profiles exist
+            let legacyBaseURL = defaults.string(forKey: Keys.aiBaseURL) ?? "https://api.openai.com/v1"
+            let legacyAPIKey = defaults.string(forKey: Keys.aiApiKey) ?? ""
+            let legacyModel = defaults.string(forKey: Keys.aiModel) ?? "gpt-4o-mini"
+            let legacyRateLimit = defaults.string(forKey: Keys.aiRateLimit) ?? "2/s"
+            
+            let defaultProfile = AIProviderProfile(
+                name: "Default (OpenAI)",
+                baseURL: legacyBaseURL.isEmpty ? "https://api.openai.com/v1" : legacyBaseURL,
+                apiKey: legacyAPIKey,
+                model: legacyModel.isEmpty ? "gpt-4o-mini" : legacyModel,
+                rateLimit: legacyRateLimit
+            )
+            
+            self.profiles = [defaultProfile]
+            // We don't save immediately to avoid overwriting unless user modifies? 
+            // Better to save so persistent.
+            saveProfiles()
+            
+            // Set defaults
+            self.summaryProfileID = defaultProfile.id
+            self.translationProfileID = defaultProfile.id
+        }
+    }
+    
+    private func saveProfiles() {
+        if let encoded = try? JSONEncoder().encode(profiles) {
+            defaults.set(encoded, forKey: Keys.aiProfiles)
+        }
+    }
+    
+    func addProfile(_ profile: AIProviderProfile) {
+        profiles.append(profile)
+    }
+    
+    func updateProfile(_ profile: AIProviderProfile) {
+        if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
+            profiles[index] = profile
+        }
+    }
+    
+    func deleteProfile(at index: Int) {
+        let profile = profiles[index]
+        profiles.remove(at: index)
+        
+        // Reset selection if deleted
+        if summaryProfileID == profile.id { summaryProfileID = profiles.first?.id }
+        if translationProfileID == profile.id { translationProfileID = profiles.first?.id }
+    }
 
-    // "English", "Chinese", etc.
+    // MARK: - Usage Helpers
+    
+    func getProfile(for usage: AIUsage) -> AIProviderProfile? {
+        // General usage might default to summary profile or just the first one
+        let id: UUID?
+        switch usage {
+        case .summary: id = summaryProfileID
+        case .translation: id = translationProfileID
+        case .general: id = summaryProfileID ?? profiles.first?.id
+        }
+        
+        guard let targetID = id else { return profiles.first }
+        return profiles.first(where: { $0.id == targetID }) ?? profiles.first
+    }
+    
+    // Provide direct accessors for backward compatibility or simple usage
+    
+    var baseURL: String { getProfile(for: .general)?.baseURL ?? "" }
+    var apiKey: String { getProfile(for: .general)?.apiKey ?? "" }
+    var model: String { getProfile(for: .general)?.model ?? "" }
+    
+    // Retrieve specifically for a context
+    func baseURL(for usage: AIUsage) -> String { getProfile(for: usage)?.baseURL ?? "" }
+    func apiKey(for usage: AIUsage) -> String { getProfile(for: usage)?.apiKey ?? "" }
+    func model(for usage: AIUsage) -> String { getProfile(for: usage)?.model ?? "" }
+    
+    // MARK: - Other Settings
+
     var outputLanguage: String {
         get { defaults.string(forKey: Keys.aiTargetLanguage) ?? "English" }
         set {
@@ -79,43 +195,14 @@ final class AISettings: ObservableObject {
         }
     }
 
-    var rateLimit: String {
-        get { defaults.string(forKey: Keys.aiRateLimit) ?? "2/s" }
-        set {
-            defaults.set(newValue, forKey: Keys.aiRateLimit)
-            objectWillChange.send()
-        }
-    }
-
-    var apiKey: String {
-        get { defaults.string(forKey: Keys.aiApiKey) ?? "" }
-        set {
-            defaults.set(newValue, forKey: Keys.aiApiKey)
-            objectWillChange.send()
-        }
+    // Helper to get QPS as double from a specific profile or rate limit string
+    func getQPS(for usage: AIUsage) -> Double {
+        guard let profile = getProfile(for: usage) else { return 2.0 }
+        return qps(from: profile.rateLimit)
     }
     
-    var summaryApiKey: String {
-        get { defaults.string(forKey: "aiSummaryApiKey") ?? "" }
-        set { defaults.set(newValue, forKey: "aiSummaryApiKey"); objectWillChange.send() }
-    }
-    
-    var translationApiKey: String {
-        get { defaults.string(forKey: "aiTranslationApiKey") ?? "" }
-        set { defaults.set(newValue, forKey: "aiTranslationApiKey"); objectWillChange.send() }
-    }
-    
-    func getApiKey(for usage: AIUsage) -> String {
-        switch usage {
-        case .summary: return summaryApiKey.isEmpty ? apiKey : summaryApiKey
-        case .translation: return translationApiKey.isEmpty ? apiKey : translationApiKey
-        case .general: return apiKey
-        }
-    }
-
-    // Helper to get QPS as double
-    var qps: Double {
-        switch rateLimit {
+    private func qps(from string: String) -> Double {
+        switch string {
         case "0.5/s": return 0.5
         case "1/s": return 1.0
         case "2/s": return 2.0
@@ -151,6 +238,7 @@ You are a professional translator who needs to fluently translate text into %TAR
             objectWillChange.send()
         }
     }
+    
     func resetSummaryPrompt() {
         defaults.removeObject(forKey: Keys.aiSummaryPrompt)
         objectWillChange.send()

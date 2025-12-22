@@ -1,10 +1,10 @@
-
 import AppKit
 
 final class AIPreferencesViewController: NSViewController {
 
     private let settings = AISettings.shared
-
+    
+    // MARK: - UI Configuration
     private lazy var tabView: NSTabView = {
         let tab = NSTabView()
         tab.translatesAutoresizingMaskIntoConstraints = false
@@ -18,7 +18,6 @@ final class AIPreferencesViewController: NSViewController {
         return tab
     }()
     
-    // MARK: - Sub View Controllers
     private lazy var generalViewController: NSViewController = {
         let vc = NSViewController()
         vc.view = generalView
@@ -37,119 +36,139 @@ final class AIPreferencesViewController: NSViewController {
         return vc
     }()
     
-    // MARK: - General View Elements
+    // MARK: - General Tab UI
     private lazy var generalView: NSView = {
         let view = NSView()
         setupGeneralUI(in: view)
         return view
     }()
     
+    private lazy var enableCheckbox: NSButton = {
+        let button = NSButton(checkboxWithTitle: "Enable AI Features", target: self, action: #selector(toggleEnable(_:)))
+        button.state = settings.isEnabled ? .on : .off
+        return button
+    }()
+    
+    // Profile Management
+    private lazy var profilesTableView: NSTableView = {
+        let table = NSTableView()
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Name"))
+        col.title = "Providers"
+        table.addTableColumn(col)
+        table.dataSource = self
+        table.delegate = self
+        table.headerView = nil 
+        return table
+    }()
+    
+    private lazy var addProfileButton: NSButton = {
+        let btn = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Profile")!, target: self, action: #selector(addProfile))
+        btn.bezelStyle = .smallSquare
+        return btn
+    }()
+    
+    private lazy var removeProfileButton: NSButton = {
+        let btn = NSButton(image: NSImage(systemSymbolName: "minus", accessibilityDescription: "Remove Profile")!, target: self, action: #selector(removeProfile))
+        btn.bezelStyle = .smallSquare
+        return btn
+    }()
+    
+    // Profile Editing Form
+    private lazy var profileNameField: NSTextField = {
+        let f = NSTextField()
+        f.placeholderString = "Name (e.g. OpenAI)"
+        f.target = self; f.action = #selector(updateCurrentProfile)
+        return f
+    }()
+    
+    private lazy var baseURLField: NSTextField = {
+        let f = NSTextField()
+        f.placeholderString = "https://api.openai.com/v1"
+        f.target = self; f.action = #selector(updateCurrentProfile)
+        return f
+    }()
+    
+    private lazy var modelField: NSTextField = {
+        let f = NSTextField()
+        f.placeholderString = "gpt-4o-mini"
+        f.target = self; f.action = #selector(updateCurrentProfile)
+        return f
+    }()
+    
+    private lazy var apiKeyField: NSSecureTextField = {
+        let f = NSSecureTextField()
+        f.placeholderString = "sk-..."
+        f.target = self; f.action = #selector(updateCurrentProfile)
+        return f
+    }()
+    
+    private lazy var rateLimitPopup: NSPopUpButton = {
+        let p = NSPopUpButton(title: "2/s", target: self, action: #selector(updateCurrentProfile))
+        p.addItems(withTitles: ["0.5/s", "1/s", "2/s", "5/s", "Unlimited"])
+        return p
+    }()
+    
+    private lazy var testConnectionButton: NSButton = {
+        NSButton(title: "Test Connection", target: self, action: #selector(testConnection))
+    }()
+    
+    private lazy var connectionStatusLabel: NSTextField = {
+        let l = NSTextField(labelWithString: "")
+        l.textColor = .secondaryLabelColor
+        l.font = NSFont.systemFont(ofSize: 11)
+        l.lineBreakMode = .byTruncatingTail
+        return l
+    }()
+    
+    private lazy var profileFormContainer: NSView = {
+        let v = NSView()
+        v.isHidden = true
+        return v
+    }()
+    
+    private lazy var noProfileLabel: NSTextField = {
+        let l = NSTextField(labelWithString: "No Provider Selected")
+        l.textColor = .secondaryLabelColor
+        l.alignment = .center
+        l.isHidden = true
+        return l
+    }()
+
+    // MARK: - Summary Tab UI
     private lazy var summaryView: NSView = {
         let view = NSView()
         setupSummaryUI(in: view)
         return view
     }()
     
-    private lazy var translationView: NSView = {
-        let view = NSView()
-        setupTranslationUI(in: view)
-        return view
+    private lazy var summaryProviderPopup: NSPopUpButton = {
+        let p = NSPopUpButton(title: "", target: self, action: #selector(summaryProviderChanged(_:)))
+        return p
     }()
 
-    // MARK: - General UI Components
-    private lazy var enableCheckbox: NSButton = {
-        let button = NSButton(checkboxWithTitle: "Enable AI Features", target: self, action: #selector(toggleEnable(_:)))
-        button.state = settings.isEnabled ? .on : .off
-        return button
-    }()
-
-    private lazy var providerPopup: NSPopUpButton = {
-        let popup = NSPopUpButton(title: "OpenAI", target: self, action: #selector(providerChanged(_:)))
-        popup.addItems(withTitles: ["OpenAI"])
-        popup.selectItem(withTitle: settings.provider)
-        return popup
-    }()
-
-    private lazy var baseURLField: NSTextField = {
-        let field = NSTextField()
-        field.placeholderString = "https://api.openai.com/v1"
-        field.stringValue = settings.baseURL
-        field.target = self
-        field.action = #selector(baseURLChanged(_:))
-        return field
-    }()
-    
-    private lazy var defaultURLButton: NSButton = {
-        let btn = NSButton(title: "Default", target: self, action: #selector(useDefaultURL(_:)))
-        btn.bezelStyle = .rounded
-        return btn
-    }()
-
-    private lazy var modelField: NSTextField = {
-        let field = NSTextField()
-        field.placeholderString = "gpt-4o-mini"
-        field.stringValue = settings.model
-        field.target = self
-        field.action = #selector(modelChanged(_:))
-        return field
-    }()
-
-    private lazy var apiKeyField: NSSecureTextField = {
-        let field = NSSecureTextField()
-        field.placeholderString = "sk-..."
-        field.stringValue = settings.apiKey
-        field.target = self
-        field.action = #selector(apiKeyChanged(_:))
-        return field
-    }()
-    
-    private lazy var testConnectionButton: NSButton = {
-        let btn = NSButton(title: "Test Connection", target: self, action: #selector(testConnection(_:)))
-        btn.bezelStyle = .rounded
-        return btn
-    }()
-    
-    private lazy var connectionStatusLabel: NSTextField = {
-        let label = NSTextField(wrappingLabelWithString: "")
-        label.textColor = .secondaryLabelColor
-        label.font = NSFont.systemFont(ofSize: 11)
-        label.preferredMaxLayoutWidth = 350
-        return label
-    }()
-
-    private lazy var rateLimitPopup: NSPopUpButton = {
-        let popup = NSPopUpButton(title: "2/s", target: self, action: #selector(rateLimitChanged(_:)))
-        let rates = ["0.5/s", "1/s", "2/s", "5/s", "Unlimited"]
-        popup.addItems(withTitles: rates)
-        popup.selectItem(withTitle: settings.rateLimit)
-        return popup
-    }()
-    
-    // MARK: - Summary UI Components
     private lazy var summaryPromptField: NSTextView = {
         let tv = NSTextView()
         tv.string = settings.summaryPrompt
         tv.isRichText = false
         tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         tv.delegate = self
-        tv.isEditable = true
-        tv.isSelectable = true
-        tv.allowsUndo = true
-        tv.isVerticallyResizable = true
-        tv.isHorizontallyResizable = false
+        tv.isEditable = true; tv.allowsUndo = true;
         tv.autoresizingMask = [.width]
-        tv.textContainer?.widthTracksTextView = true
-        tv.textContainer?.containerSize = NSSize(width: 1000, height: CGFloat.greatestFiniteMagnitude)
         return tv
     }()
-    
-    private lazy var resetSummaryButton: NSButton = {
-        let btn = NSButton(title: "Reset to Default", target: self, action: #selector(resetSummaryPrompt(_:)))
-        btn.bezelStyle = .rounded
-        return btn
+
+    // MARK: - Translation Tab UI
+    private lazy var translationView: NSView = {
+        let view = NSView()
+        setupTranslationUI(in: view)
+        return view
     }()
     
-    // MARK: - Translation UI Components
+    private lazy var translationProviderPopup: NSPopUpButton = {
+        let p = NSPopUpButton(title: "", target: self, action: #selector(translationProviderChanged(_:)))
+        return p
+    }()
+
     private lazy var outputLanguagePopup: NSPopUpButton = {
         let popup = NSPopUpButton(title: "English", target: self, action: #selector(languageChanged(_:)))
         let start = ["English", "Chinese", "Japanese", "French", "German", "Spanish", "Korean", "Russian"]
@@ -170,7 +189,6 @@ final class AIPreferencesViewController: NSViewController {
         tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         tv.delegate = self
         tv.isEditable = true
-        tv.isSelectable = true
         tv.allowsUndo = true
         tv.isVerticallyResizable = true
         tv.isHorizontallyResizable = false
@@ -180,25 +198,20 @@ final class AIPreferencesViewController: NSViewController {
         return tv
     }()
     
-    private lazy var resetTranslationButton: NSButton = {
-        let btn = NSButton(title: "Reset to Default", target: self, action: #selector(resetTranslationPrompt(_:)))
-        btn.bezelStyle = .rounded
-        return btn
-    }()
-
     private lazy var autoTranslateCheckbox: NSButton = {
         let button = NSButton(checkboxWithTitle: "Auto translate non-target language articles", target: self, action: #selector(toggleAutoTranslate(_:)))
         button.state = settings.autoTranslate ? .on : .off
         return button
     }()
 
+    // MARK: - Lifecycle
     override func loadView() {
         let view = NSView()
         view.wantsLayer = true
-        view.frame = NSRect(x: 0, y: 0, width: 500, height: 450)
+        view.frame = NSRect(x: 0, y: 0, width: 620, height: 450)
         self.view = view
     }
-
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         view.addSubview(tabView)
@@ -208,202 +221,311 @@ final class AIPreferencesViewController: NSViewController {
             tabView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             tabView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20)
         ])
-    }
-
-    private func setupGeneralUI(in view: NSView) {
-        let urlStack = NSStackView(views: [baseURLField, defaultURLButton])
-        urlStack.spacing = 8
         
+        reloadProfilePopups()
+        
+        // Select first profile if available
+        if !settings.profiles.isEmpty {
+            profilesTableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            updateFormFromSelection()
+        } else {
+             profileFormContainer.isHidden = true
+        }
+    }
+    
+    // MARK: - Setup UI
+    private func setupGeneralUI(in view: NSView) {
+        // Left: Table list + Buttons
+        let scroll = NSScrollView()
+        scroll.documentView = profilesTableView
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        
+        let buttonStack = NSStackView(views: [addProfileButton, removeProfileButton])
+        buttonStack.spacing = 0
+        buttonStack.orientation = .horizontal
+        buttonStack.distribution = .fillEqually
+        
+        let leftCol = NSStackView(views: [scroll, buttonStack])
+        leftCol.orientation = .vertical
+        leftCol.spacing = 0
+        
+        // Right: Form
         let grid = NSGridView(views: [
-            [enableCheckbox, NSGridCell.emptyContentView],
-            [createSectionLabel("Provider Configuration"), NSGridCell.emptyContentView],
-            [NSTextField(labelWithString: "Provider:"), providerPopup],
-            [NSTextField(labelWithString: "Base URL:"), urlStack],
+            [NSTextField(labelWithString: "Name:"), profileNameField],
+            [NSTextField(labelWithString: "Base URL:"), baseURLField],
             [NSTextField(labelWithString: "Model:"), modelField],
             [NSTextField(labelWithString: "API Key:"), apiKeyField],
-            [NSGridCell.emptyContentView, testConnectionButton],
-            [NSGridCell.emptyContentView, connectionStatusLabel],
             [NSTextField(labelWithString: "Rate Limit:"), rateLimitPopup]
         ])
-
-        grid.translatesAutoresizingMaskIntoConstraints = false
         grid.rowSpacing = 12
         grid.columnSpacing = 12
         grid.column(at: 0).xPlacement = .trailing
-        grid.column(at: 1).xPlacement = .leading
-
-        view.addSubview(grid)
+        
+        let formStack = NSStackView(views: [grid, NSBox(), testConnectionButton, connectionStatusLabel])
+        formStack.orientation = .vertical
+        formStack.alignment = .centerX
+        formStack.spacing = 16
+        
+        profileFormContainer.addSubview(formStack)
+        formStack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            grid.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
+            formStack.centerXAnchor.constraint(equalTo: profileFormContainer.centerXAnchor),
+            formStack.centerYAnchor.constraint(equalTo: profileFormContainer.centerYAnchor),
+            profileNameField.widthAnchor.constraint(equalToConstant: 200),
             baseURLField.widthAnchor.constraint(equalToConstant: 200),
-            modelField.widthAnchor.constraint(equalToConstant: 280),
-            apiKeyField.widthAnchor.constraint(equalToConstant: 280)
+            apiKeyField.widthAnchor.constraint(equalToConstant: 200)
+        ])
+        
+        profileFormContainer.addSubview(noProfileLabel)
+        noProfileLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            noProfileLabel.centerXAnchor.constraint(equalTo: profileFormContainer.centerXAnchor),
+            noProfileLabel.centerYAnchor.constraint(equalTo: profileFormContainer.centerYAnchor)
+        ])
+        
+        let mainSplit = NSStackView(views: [leftCol, profileFormContainer])
+        mainSplit.spacing = 20
+        mainSplit.distribution = .fillProportionally
+        
+        let topStack = NSStackView(views: [enableCheckbox])
+        
+        let container = NSStackView(views: [topStack, mainSplit])
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 16
+        container.translatesAutoresizingMaskIntoConstraints = false
+        
+        view.addSubview(container)
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: view.topAnchor, constant: 19),
+            container.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            container.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            container.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+            leftCol.widthAnchor.constraint(equalToConstant: 150),
+            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 200)
         ])
     }
     
-    private lazy var summaryApiKeyField: NSSecureTextField = {
-        let field = NSSecureTextField()
-        field.placeholderString = "Optional: Independent API Key"
-        field.stringValue = settings.summaryApiKey
-        field.target = self
-        field.action = #selector(summaryApiKeyChanged(_:))
-        return field
-    }()
-
-    private lazy var clearSummaryCacheButton: NSButton = {
-        let btn = NSButton(title: "Clear Summary Cache", target: self, action: #selector(clearSummaryCache(_:)))
-        btn.bezelStyle = .rounded
-        return btn
-    }()
-
     private func setupSummaryUI(in view: NSView) {
-        let label = NSTextField(labelWithString: "Summary System Prompt:")
-        let scrollView = NSScrollView()
-        scrollView.documentView = summaryPromptField
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
+        let scroll = NSScrollView()
+        scroll.documentView = summaryPromptField
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
         
-        let apiKeyStack = NSStackView(views: [NSTextField(labelWithString: "API Key (Optional):"), summaryApiKeyField])
-        apiKeyStack.spacing = 8
-        apiKeyStack.orientation = .horizontal
+        let topGrid = NSGridView(views: [
+            [NSTextField(labelWithString: "Provider:"), summaryProviderPopup],
+        ])
+        topGrid.rowSpacing = 8
+        topGrid.column(at: 0).xPlacement = .trailing
         
-        let headerStack = NSStackView(views: [label, resetSummaryButton])
-        headerStack.distribution = .fillProportionally
-        headerStack.spacing = 8
+        let resetBtn = NSButton(title: "Reset Prompt", target: self, action: #selector(resetSummaryPrompt))
+        let clearCacheBtn = NSButton(title: "Clear Cache", target: self, action: #selector(clearSummaryCache))
         
-        // Add clear cache button at the bottom
-        let stack = NSStackView(views: [apiKeyStack, headerStack, scrollView, clearSummaryCacheButton])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.spacing = 8
+        let contentStack = NSStackView(views: [
+            topGrid,
+            NSTextField(labelWithString: "System Prompt:"),
+            scroll,
+            NSStackView(views: [resetBtn, clearCacheBtn])
+        ])
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 8
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
         
-        view.addSubview(stack)
+        view.addSubview(contentStack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
-            summaryApiKeyField.widthAnchor.constraint(equalToConstant: 300),
-            scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            // ensure text view uses full width
-            summaryPromptField.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
-            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 200)
+            contentStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
+            contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+            scroll.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            summaryPromptField.widthAnchor.constraint(equalTo: scroll.widthAnchor),
+            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
         ])
     }
     
-    private lazy var translationApiKeyField: NSSecureTextField = {
-        let field = NSSecureTextField()
-        field.placeholderString = "Optional: Independent API Key"
-        field.stringValue = settings.translationApiKey
-        field.target = self
-        field.action = #selector(translationApiKeyChanged(_:))
-        return field
-    }()
-
-    private lazy var clearTranslationCacheButton: NSButton = {
-        let btn = NSButton(title: "Clear Translation Cache", target: self, action: #selector(clearTranslationCache(_:)))
-        btn.bezelStyle = .rounded
-        return btn
-    }()
-
     private func setupTranslationUI(in view: NSView) {
-        let labelPrompt = NSTextField(labelWithString: "Translation System Prompt (%TARGET_LANGUAGE% will be replaced):")
+        let scroll = NSScrollView()
+        scroll.documentView = translationPromptField
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
         
-        let scrollView = NSScrollView()
-        scrollView.documentView = translationPromptField
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
-        
-        let grid = NSGridView(views: [
+        let topGrid = NSGridView(views: [
+            [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
             [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup],
-            [NSGridCell.emptyContentView, autoTranslateCheckbox],
-            [NSTextField(labelWithString: "API Key (Optional):"), translationApiKeyField]
+            [NSGridCell.emptyContentView, autoTranslateCheckbox]
         ])
-        grid.rowSpacing = 10
-        grid.column(at: 0).xPlacement = .trailing
-
-        let headerStack = NSStackView(views: [labelPrompt, resetTranslationButton])
-        headerStack.spacing = 8
-
-        let stack = NSStackView(views: [grid, headerStack, scrollView, clearTranslationCacheButton])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        topGrid.rowSpacing = 8
+        topGrid.column(at: 0).xPlacement = .trailing
         
-        view.addSubview(stack)
+        let resetBtn = NSButton(title: "Reset Prompt", target: self, action: #selector(resetTranslationPrompt))
+        let clearCacheBtn = NSButton(title: "Clear Cache", target: self, action: #selector(clearTranslationCache))
+        
+        let contentStack = NSStackView(views: [
+            topGrid,
+            NSTextField(labelWithString: "System Prompt (%TARGET_LANGUAGE% will be replaced):"),
+            scroll,
+            NSStackView(views: [resetBtn, clearCacheBtn])
+        ])
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 8
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        
+        view.addSubview(contentStack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
-            translationApiKeyField.widthAnchor.constraint(equalToConstant: 300),
-            scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            translationPromptField.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
-            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
+            contentStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
+            contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+            scroll.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            translationPromptField.widthAnchor.constraint(equalTo: scroll.widthAnchor),
+            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
         ])
     }
     
-    // ...
+    // MARK: - Logic
     
-    @objc private func resetSummaryPrompt(_ sender: NSButton) {
+    @objc private func addProfile() {
+        let newProfile = AIProviderProfile(name: "New Provider", baseURL: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini", rateLimit: "2/s")
+        settings.addProfile(newProfile)
+        profilesTableView.reloadData()
+        
+        let index = settings.profiles.count - 1
+        profilesTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        updateFormFromSelection()
+        reloadProfilePopups()
+    }
+    
+    @objc private func removeProfile() {
+        let row = profilesTableView.selectedRow
+        guard row >= 0 && row < settings.profiles.count else { return }
+        
+        settings.deleteProfile(at: row)
+        profilesTableView.reloadData()
+        
+        if settings.profiles.isEmpty {
+           profileFormContainer.isHidden = true
+           noProfileLabel.isHidden = false
+        } else {
+            let nextRow = min(row, settings.profiles.count - 1)
+            profilesTableView.selectRowIndexes(IndexSet(integer: nextRow), byExtendingSelection: false)
+            updateFormFromSelection()
+        }
+        reloadProfilePopups()
+    }
+    
+    @objc private func updateCurrentProfile() {
+        let row = profilesTableView.selectedRow
+        guard row >= 0 && row < settings.profiles.count else { return }
+        
+        var profile = settings.profiles[row]
+        profile.name = profileNameField.stringValue
+        profile.baseURL = baseURLField.stringValue
+        profile.model = modelField.stringValue
+        profile.apiKey = apiKeyField.stringValue
+        profile.rateLimit = rateLimitPopup.titleOfSelectedItem ?? "2/s"
+        
+        settings.updateProfile(profile)
+        // Refresh name in table
+        profilesTableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integer: 0))
+        
+        reloadProfilePopups()
+    }
+    
+    private func updateFormFromSelection() {
+        let row = profilesTableView.selectedRow
+        if row >= 0 && row < settings.profiles.count {
+            let profile = settings.profiles[row]
+            profileNameField.stringValue = profile.name
+            baseURLField.stringValue = profile.baseURL
+            modelField.stringValue = profile.model
+            apiKeyField.stringValue = profile.apiKey
+            rateLimitPopup.selectItem(withTitle: profile.rateLimit)
+            
+            profileFormContainer.isHidden = false
+            noProfileLabel.isHidden = true
+            connectionStatusLabel.stringValue = ""
+        } else {
+            profileFormContainer.isHidden = true
+            noProfileLabel.isHidden = false
+        }
+    }
+    
+    private func reloadProfilePopups() {
+        // Summary
+        summaryProviderPopup.removeAllItems()
+        translationProviderPopup.removeAllItems()
+        
+        let names = settings.profiles.map { $0.name }
+        
+        if names.isEmpty {
+            summaryProviderPopup.addItem(withTitle: "No Providers")
+            translationProviderPopup.addItem(withTitle: "No Providers")
+            return
+        }
+        
+        summaryProviderPopup.addItems(withTitles: names)
+        translationProviderPopup.addItems(withTitles: names)
+        
+        if let sID = settings.summaryProfileID, let p = settings.profiles.first(where: { $0.id == sID }) {
+            summaryProviderPopup.selectItem(withTitle: p.name)
+        }
+        
+        if let tID = settings.translationProfileID, let p = settings.profiles.first(where: { $0.id == tID }) {
+            translationProviderPopup.selectItem(withTitle: p.name)
+        }
+    }
+    
+    @objc private func summaryProviderChanged(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem
+        if index >= 0 && index < settings.profiles.count {
+            settings.summaryProfileID = settings.profiles[index].id
+        }
+    }
+    
+    @objc private func translationProviderChanged(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem
+        if index >= 0 && index < settings.profiles.count {
+            settings.translationProfileID = settings.profiles[index].id
+        }
+    }
+
+    // Actions
+    @objc private func toggleEnable(_ sender: NSButton) { settings.isEnabled = (sender.state == .on) }
+    @objc private func languageChanged(_ sender: NSPopUpButton) { settings.outputLanguage = sender.titleOfSelectedItem ?? "English" }
+    @objc private func toggleAutoTranslate(_ sender: NSButton) { settings.autoTranslate = (sender.state == .on) }
+    
+    @objc private func resetSummaryPrompt() {
         settings.resetSummaryPrompt()
         summaryPromptField.string = settings.summaryPrompt
     }
     
-    @objc private func resetTranslationPrompt(_ sender: NSButton) {
+    @objc private func resetTranslationPrompt() {
         settings.resetTranslationPrompt()
         translationPromptField.string = settings.translationPrompt
     }
     
-    private func createSectionLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = NSFont.boldSystemFont(ofSize: 13)
-        return label
-    }
-    
-    @objc private func clearSummaryCache(_ sender: NSButton) {
+    @objc private func clearSummaryCache() {
         AICacheManager.shared.clearSummaryCache()
-        let alert = NSAlert()
-        alert.messageText = "Summary Cache Cleared"
-        alert.informativeText = "All cached summaries have been removed."
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        showDone("Summary Cache Cleared")
     }
     
-    @objc private func clearTranslationCache(_ sender: NSButton) {
+    @objc private func clearTranslationCache() {
         AICacheManager.shared.clearTranslationCache()
+        showDone("Translation Cache Cleared")
+    }
+    
+    private func showDone(_ msg: String) {
         let alert = NSAlert()
-        alert.messageText = "Translation Cache Cleared"
-        alert.informativeText = "All cached translations have been removed."
+        alert.messageText = msg
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
-    
-    // MARK: - Actions
-    @objc private func toggleEnable(_ sender: NSButton) { settings.isEnabled = (sender.state == .on) }
-    @objc private func providerChanged(_ sender: NSPopUpButton) { settings.provider = sender.titleOfSelectedItem ?? "OpenAI" }
-    @objc private func baseURLChanged(_ sender: NSTextField) { settings.baseURL = sender.stringValue }
-    @objc private func useDefaultURL(_ sender: NSButton) {
-        settings.baseURL = "https://api.openai.com/v1"
-        baseURLField.stringValue = settings.baseURL
-    }
-    @objc private func modelChanged(_ sender: NSTextField) { settings.model = sender.stringValue }
-    @objc private func apiKeyChanged(_ sender: NSTextField) { settings.apiKey = sender.stringValue }
-    @objc private func languageChanged(_ sender: NSPopUpButton) { settings.outputLanguage = sender.titleOfSelectedItem ?? "English" }
-    @objc private func toggleAutoTranslate(_ sender: NSButton) { settings.autoTranslate = (sender.state == .on) }
-    @objc private func rateLimitChanged(_ sender: NSPopUpButton) { settings.rateLimit = sender.titleOfSelectedItem ?? "2/s" }
-    
-    @objc private func summaryApiKeyChanged(_ sender: NSTextField) { settings.summaryApiKey = sender.stringValue }
-    @objc private func translationApiKeyChanged(_ sender: NSTextField) { settings.translationApiKey = sender.stringValue }
     
     @objc private func testConnection(_ sender: NSButton) {
-        // Force update settings from UI to ensure we have the latest values
-        settings.apiKey = apiKeyField.stringValue
-        settings.baseURL = baseURLField.stringValue
-        settings.model = modelField.stringValue
+        updateCurrentProfile()
         
         connectionStatusLabel.stringValue = "Testing..."
         connectionStatusLabel.textColor = .secondaryLabelColor
@@ -412,7 +534,7 @@ final class AIPreferencesViewController: NSViewController {
         Task {
             do {
                 _ = try await AIService.shared.testConnection()
-                connectionStatusLabel.stringValue = "Success!"
+                connectionStatusLabel.stringValue = "Success (General)"
                 connectionStatusLabel.textColor = .systemGreen
             } catch {
                 connectionStatusLabel.stringValue = "Failed: \(error.localizedDescription)"
@@ -420,6 +542,30 @@ final class AIPreferencesViewController: NSViewController {
             }
             sender.isEnabled = true
         }
+    }
+}
+
+extension AIPreferencesViewController: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        return settings.profiles.count
+    }
+    
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let id = NSUserInterfaceItemIdentifier("NameCell")
+        var view = tableView.makeView(withIdentifier: id, owner: self) as? NSTextField
+        if view == nil {
+            view = NSTextField()
+            view?.identifier = id
+            view?.isBordered = false
+            view?.drawsBackground = false
+            view?.isEditable = false
+        }
+        view?.stringValue = settings.profiles[row].name
+        return view
+    }
+    
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        updateFormFromSelection()
     }
 }
 

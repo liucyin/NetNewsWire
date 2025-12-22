@@ -567,9 +567,9 @@ final class MainWindowController : NSWindowController, NSUserInterfaceValidation
                 let summary = try await AIService.shared.summarize(text: text)
                 // Cache the result
                 AICacheManager.shared.saveSummary(summary, for: article.articleID)
-                await detailViewController?.injectAISummary(summary)
+                detailViewController?.injectAISummary(summary)
             } catch {
-                await NSAlert(error: error).runModal()
+                NSAlert(error: error).runModal()
             }
         }
 	}

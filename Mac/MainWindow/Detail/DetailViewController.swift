@@ -182,20 +182,21 @@ extension DetailViewController: DetailWebViewControllerDelegate {
         let articleID = article.articleID
         
         Task { @MainActor in
-            // Ensure IDs are stable (deterministic) so cache matching works
-            await detailWebViewController.ensureStableIDs()
-            
-            // 1. Restore Summary Cache
+            // 1. Restore Summary Cache first (because it adds content to DOM)
             if let cachedSummary = AICacheManager.shared.getSummary(for: articleID) {
                 detailWebViewController.injectAISummary(cachedSummary)
             }
             
-            // 2. Restore Translation Cache
+            // 2. Force re-indexing of IDs. 
+            // This ensures that if Summary was added, it gets IDs 0..N, and body gets N+1..M.
+            // This order is deterministic based on DOM order.
+            await detailWebViewController.ensureStableIDs(force: true)
+            
+            // 3. Restore Translation Cache
             if let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID), !cachedTranslations.isEmpty {
                 for (id, text) in cachedTranslations {
                     detailWebViewController.injectTranslation(id: id, text: text)
                 }
-                // If we have translations, we stop here (don't auto-translate again)
                 return
             }
             
@@ -216,12 +217,13 @@ extension DetailViewController: DetailWebViewControllerDelegate {
             
             let targetLang = AISettings.shared.outputLanguage
             let targetIso = isoCode(for: targetLang)
-            
-            // Note: dominantLang.rawValue returns "en", "zh-Hans", etc.
             let detectedIso = dominantLang.rawValue
+            
+            print("AI Auto-Translate: Detected \(detectedIso), Target \(targetIso) (\(targetLang))")
             
             // Check if detected starts with target (e.g. en-US starts with en)
             if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
+                print("AI Auto-Translate: Triggering translation...")
                 await performTranslation()
             }
         }

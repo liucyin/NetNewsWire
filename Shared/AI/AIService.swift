@@ -37,12 +37,14 @@ actor AIService {
     }
     
     private func performChatRequest(systemPrompt: String, userPrompt: String, usage: AISettings.AIUsage) async throws -> String {
-        let apiKey = settings.getApiKey(for: usage)
+        let apiKey = settings.apiKey(for: usage)
         guard !apiKey.isEmpty else {
             throw AIServiceError.noAPIKey
         }
         
-        let baseURLStr = settings.baseURL
+        // Fetch Base URL based on usage (Summary/Translation/General)
+        let baseURLStr = settings.baseURL(for: usage)
+        
         // Ensure URL ends with /v1/chat/completions (generic OpenAI compatible)
         // If user enters "https://api.openai.com/v1", we want "https://api.openai.com/v1/chat/completions"
         // If user enters "https://api.openai.com/v1/", we want "https://api.openai.com/v1/chat/completions"
@@ -66,7 +68,9 @@ actor AIService {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let model = settings.model.isEmpty ? "gpt-4o-mini" : settings.model
+        // Fetch Model based on usage
+        let profileModel = settings.model(for: usage)
+        let model = profileModel.isEmpty ? "gpt-4o-mini" : profileModel
         
         let messages: [[String: String]] = [
             ["role": "system", "content": systemPrompt],

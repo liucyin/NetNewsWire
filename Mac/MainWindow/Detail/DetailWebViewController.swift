@@ -548,15 +548,43 @@ extension DetailWebViewController {
     }
 
     // Ensure all target nodes have stable IDs for translation injection
-    func ensureStableIDs() async {
+    // force: if true, overwrites existing IDs (useful when DOM structure changes significantly, e.g. summary added at top)
+    func ensureStableIDs(force: Bool = false) async {
         let js = """
         (function() {
-            var nodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
-            for (var i = 0; i < nodes.length; i++) {
-                // We use a deterministic ID based on index to ensure cache hits across reloads
-                if (!nodes[i].id || !nodes[i].id.startsWith('ai-node-')) {
-                    nodes[i].id = 'ai-node-' + i;
+            // Namespace 1: Summary Nodes
+            var summaryContainer = document.getElementById('aiSummary');
+            if (summaryContainer) {
+                var sNodes = summaryContainer.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+                for (var i = 0; i < sNodes.length; i++) {
+                    // Startswith check handles old 'ai-node' IDs by overwriting them if we want strict Namespaces
+                    // But if force=true, we overwrite anyway.
+                    // If force=false, we check if it HAS an ID. If it has 'ai-node-X' (old style), we might want to update it to new style?
+                    // Let's assume force=true is used when refreshing structure.
+                    
+                    var shouldAssign = \(force) || !sNodes[i].id || !sNodes[i].id.startsWith('ai-summary-node-');
+                    if (shouldAssign) {
+                        sNodes[i].id = 'ai-summary-node-' + i;
+                    }
                 }
+            }
+
+            // Namespace 2: Body Nodes (Excluding Summary)
+            var allNodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+            var bodyIndex = 0;
+            
+            for (var i = 0; i < allNodes.length; i++) {
+                var node = allNodes[i];
+                // Check if inside summary
+                if (summaryContainer && summaryContainer.contains(node)) {
+                    continue; 
+                }
+                
+                var shouldAssign = \(force) || !node.id || !node.id.startsWith('ai-body-node-');
+                if (shouldAssign) {
+                    node.id = 'ai-body-node-' + bodyIndex;
+                }
+                bodyIndex++;
             }
         })();
         """
@@ -565,8 +593,8 @@ extension DetailWebViewController {
 
     // Returns a dictionary of [ID: Text]
     func prepareForTranslation() async -> [String: String] {
-        // First ensure IDs are assigned
-        await ensureStableIDs()
+        // Force re-indexing before translation to ensure current DOM order is captured accurately
+        await ensureStableIDs(force: true)
         
         let js = """
         (function() {
