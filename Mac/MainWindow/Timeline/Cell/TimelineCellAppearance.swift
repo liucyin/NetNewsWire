@@ -20,7 +20,7 @@ struct TimelineCellAppearance: Equatable {
 	let dateMarginLeft: CGFloat = 8.0
 
 	let titleFont: NSFont
-	let titleBottomMargin: CGFloat = 1.0
+	let titleBottomMargin: CGFloat = 4.0
 	let titleNumberOfLines = 3
 
 	let textFont: NSFont
@@ -42,7 +42,7 @@ struct TimelineCellAppearance: Equatable {
 
 	// Article thumbnail settings
 	let articleThumbnailSize = NSSize(width: 100, height: 72)
-	let articleThumbnailMarginLeft: CGFloat = 8.0
+	let articleThumbnailMarginLeft: CGFloat = 12.0
 	let articleThumbnailCornerRadius: CGFloat = 6.0
 
 	let boxLeftMargin: CGFloat
@@ -61,7 +61,7 @@ struct TimelineCellAppearance: Equatable {
 
 		self.showIcon = showIcon
 
-		cellPadding = NSEdgeInsets(top: 8.0, left: 4.0, bottom: 10.0, right: 4.0)
+		cellPadding = NSEdgeInsets(top: 12.0, left: 16.0, bottom: 12.0, right: 16.0)
 
 		let margin = self.cellPadding.left + self.unreadCircleDimension + self.unreadCircleMarginRight
 		self.boxLeftMargin = margin
