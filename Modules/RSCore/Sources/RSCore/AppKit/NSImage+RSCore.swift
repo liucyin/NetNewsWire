@@ -25,5 +25,24 @@ public extension NSImage {
 		image.isTemplate = false
 		return image
 	}
+
+	func imageByCroppingToSquare() -> NSImage {
+		let originalSize = self.size
+		if originalSize.width == originalSize.height {
+			return self
+		}
+
+		let size = min(originalSize.width, originalSize.height)
+		let x = (originalSize.width - size) / 2
+		let y = (originalSize.height - size) / 2
+		let rect = NSRect(x: x, y: y, width: size, height: size)
+		
+		let newImage = NSImage(size: NSSize(width: size, height: size))
+		newImage.lockFocus()
+		self.draw(in: NSRect(x: 0, y: 0, width: size, height: size), from: rect, operation: .copy, fraction: 1.0)
+		newImage.unlockFocus()
+		
+		return newImage
+	}
 }
 #endif

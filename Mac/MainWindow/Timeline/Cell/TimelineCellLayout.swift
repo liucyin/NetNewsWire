@@ -58,25 +58,17 @@ import RSCore
 		let showArticleThumbnail = AppDefaults.shared.timelineShowsArticleThumbnails && cellData.articleImageURL != nil
 		var textBoxRect = TimelineCellLayout.rectForTextBox(appearance, cellData, showIcon, showArticleThumbnail, width)
 
-		let (titleRect, numberOfLinesForTitle) = TimelineCellLayout.rectForTitle(textBoxRect, appearance, cellData)
-		let summaryRect = numberOfLinesForTitle > 0 ? TimelineCellLayout.rectForSummary(textBoxRect, titleRect, numberOfLinesForTitle, appearance, cellData) : NSRect.zero
-		let textRect = numberOfLinesForTitle > 0 ? NSRect.zero : TimelineCellLayout.rectForText(textBoxRect, appearance, cellData)
-
-		var lastTextRect = titleRect
-		if numberOfLinesForTitle == 0 {
-			lastTextRect = textRect
-		}
-		else if numberOfLinesForTitle < appearance.titleNumberOfLines {
-			if summaryRect.height > 0.1 {
-				lastTextRect = summaryRect
-			}
-		}
-		let dateRect = TimelineCellLayout.rectForDate(textBoxRect, lastTextRect, appearance, cellData)
+		let dateRect = TimelineCellLayout.rectForDate(textBoxRect, appearance, cellData)
 		let feedNameRect = TimelineCellLayout.rectForFeedName(textBoxRect, dateRect, appearance, cellData)
+		let headerBottomY = max(dateRect.maxY, feedNameRect.maxY)
+
+		let (titleRect, numberOfLinesForTitle) = TimelineCellLayout.rectForTitle(textBoxRect, headerBottomY, appearance, cellData)
+		let summaryRect = numberOfLinesForTitle > 0 ? TimelineCellLayout.rectForSummary(textBoxRect, titleRect, numberOfLinesForTitle, appearance, cellData) : NSRect.zero
+		let textRect = numberOfLinesForTitle > 0 ? NSRect.zero : TimelineCellLayout.rectForText(textBoxRect, headerBottomY, appearance, cellData)
 
 		textBoxRect.size.height = ceil([titleRect, summaryRect, textRect, dateRect, feedNameRect].maxY() - textBoxRect.origin.y)
 		let iconImageRect = TimelineCellLayout.rectForIcon(cellData, appearance, showIcon, textBoxRect, width, height)
-		let unreadIndicatorRect = TimelineCellLayout.rectForUnreadIndicator(appearance, textBoxRect)
+		let unreadIndicatorRect = TimelineCellLayout.rectForUnreadIndicator(appearance, textBoxRect) // Warning: this depends on titleRect.minY, check logic
 		let starRect = TimelineCellLayout.rectForStar(appearance, unreadIndicatorRect)
 		let articleThumbnailRect = TimelineCellLayout.rectForArticleThumbnail(appearance, showArticleThumbnail, textBoxRect, width)
 		let separatorRect = TimelineCellLayout.rectForSeparator(cellData, appearance, showIcon ? iconImageRect : titleRect, width, height)
@@ -111,9 +103,37 @@ import RSCore
 		return textBoxRect
 	}
 
-	static func rectForTitle(_ textBoxRect: NSRect, _ appearance: TimelineCellAppearance, _ cellData: TimelineCellData) -> (NSRect, Int) {
+	static func rectForDate(_ textBoxRect: NSRect, _ appearance: TimelineCellAppearance, _ cellData: TimelineCellData) -> NSRect {
+		let textFieldSize = SingleLineTextFieldSizer.size(for: cellData.dateString, font: appearance.dateFont)
+
+		var r = NSZeroRect
+		r.size = textFieldSize
+		r.origin.y = textBoxRect.origin.y
+		r.size.width = textFieldSize.width
+		r.origin.x = textBoxRect.maxX - textFieldSize.width
+
+		return r
+	}
+
+	static func rectForFeedName(_ textBoxRect: NSRect, _ dateRect: NSRect, _ appearance: TimelineCellAppearance, _ cellData: TimelineCellData) -> NSRect {
+		if cellData.showFeedName == .none {
+			return NSZeroRect
+		}
+
+		let textFieldSize = SingleLineTextFieldSizer.size(for: cellData.feedName, font: appearance.feedNameFont)
+		var r = NSZeroRect
+		r.size = textFieldSize
+		r.origin.y = dateRect.minY
+		r.origin.x = textBoxRect.origin.x
+		r.size.width = (textBoxRect.maxX - (dateRect.size.width + appearance.dateMarginLeft)) - textBoxRect.origin.x
+
+		return r
+	}
+
+	static func rectForTitle(_ textBoxRect: NSRect, _ startY: CGFloat, _ appearance: TimelineCellAppearance, _ cellData: TimelineCellData) -> (NSRect, Int) {
 
 		var r = textBoxRect
+		r.origin.y = startY + 2.0 // Add a little padding below date/feedname
 
 		if cellData.title.isEmpty {
 			r.size.height = 0
@@ -147,8 +167,9 @@ import RSCore
 
 	}
 
-	static func rectForText(_ textBoxRect: NSRect, _ appearance: TimelineCellAppearance, _ cellData: TimelineCellData) -> NSRect {
+	static func rectForText(_ textBoxRect: NSRect, _ startY: CGFloat, _ appearance: TimelineCellAppearance, _ cellData: TimelineCellData) -> NSRect {
 		var r = textBoxRect
+		r.origin.y = startY + 2.0
 
 		if cellData.text.isEmpty {
 			r.size.height = 0
@@ -163,43 +184,16 @@ import RSCore
 		return r
 	}
 
-	static func rectForDate(_ textBoxRect: NSRect, _ rectAbove: NSRect, _ appearance: TimelineCellAppearance, _ cellData: TimelineCellData) -> NSRect {
-		let textFieldSize = SingleLineTextFieldSizer.size(for: cellData.dateString, font: appearance.dateFont)
-
-		var r = NSZeroRect
-		r.size = textFieldSize
-		r.origin.y = NSMaxY(rectAbove) + appearance.titleBottomMargin
-		r.size.width = textFieldSize.width
-
-		r.origin.x = textBoxRect.maxX - textFieldSize.width
-
-		return r
-	}
-
-	static func rectForFeedName(_ textBoxRect: NSRect, _ dateRect: NSRect, _ appearance: TimelineCellAppearance, _ cellData: TimelineCellData) -> NSRect {
-		if cellData.showFeedName == .none {
-			return NSZeroRect
-		}
-
-		let textFieldSize = SingleLineTextFieldSizer.size(for: cellData.feedName, font: appearance.feedNameFont)
-		var r = NSZeroRect
-		r.size = textFieldSize
-		r.origin.y = dateRect.minY
-		r.origin.x = textBoxRect.origin.x
-		r.size.width = (textBoxRect.maxX - (dateRect.size.width + appearance.dateMarginLeft)) - textBoxRect.origin.x
-
-		return r
-	}
-
-	static func rectForUnreadIndicator(_ appearance: TimelineCellAppearance, _ titleRect: NSRect) -> NSRect {
-
+	static func rectForUnreadIndicator(_ appearance: TimelineCellAppearance, _ textBoxRect: NSRect) -> NSRect {
+		// Centered vertically relative to the cell content? Or fixed at top?
+		// Image 2 has the dot on the left, seemingly aligned with the top line or title.
+		// Original code: titleRect.minY + 6.
+		// Since we changed title position, let's align with the top of textBoxRect (Date/FeedName line)
+		
 		var r = NSZeroRect
 		r.size = NSSize(width: appearance.unreadCircleDimension, height: appearance.unreadCircleDimension)
 		r.origin.x = appearance.cellPadding.left
-		r.origin.y = titleRect.minY + 6
-//		r = RSRectCenteredVerticallyInRect(r, titleRect)
-//		r.origin.y += 1
-
+		r.origin.y = textBoxRect.origin.y + 5 // Approximate centering on single line text
 		return r
 	}
 
@@ -237,7 +231,7 @@ import RSCore
 		}
 		r.size = appearance.articleThumbnailSize
 		r.origin.x = floor(width - appearance.cellPadding.right - appearance.articleThumbnailSize.width)
-		r.origin.y = textBoxRect.origin.y
+		r.origin.y = textBoxRect.origin.y + 4 // slight offset
 		return r
 	}
 }

@@ -327,7 +327,7 @@ private extension TimelineTableCellView {
 		if let imageData = ImageDownloader.shared.image(for: imageURL) {
 			if let image = NSImage(data: imageData) {
 				showView(articleThumbnailView)
-				articleThumbnailView.image = image
+				articleThumbnailView.image = image.imageByCroppingToSquare()
 				needsLayout = true
 			} else {
 				hideView(articleThumbnailView)
