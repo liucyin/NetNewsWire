@@ -209,6 +209,20 @@ final class AIPreferencesViewController: NSViewController {
         button.state = settings.autoTranslateTitles ? .on : .off
         return button
     }()
+    
+    private lazy var hoverTranslationCheckbox: NSButton = {
+        let button = NSButton(checkboxWithTitle: "Translate Paragraph on Hover", target: self, action: #selector(toggleHoverTranslation(_:)))
+        button.state = settings.hoverTranslationEnabled ? .on : .off
+        return button
+    }()
+    
+    private lazy var hoverModifierPopup: NSPopUpButton = {
+        let p = NSPopUpButton(title: "Control", target: self, action: #selector(hoverModifierChanged(_:)))
+        p.addItems(withTitles: ["Control", "Option", "Command"])
+        p.selectItem(withTitle: settings.hoverModifier.rawValue)
+        p.isEnabled = settings.hoverTranslationEnabled
+        return p
+    }()
 
     // MARK: - Lifecycle
     override func loadView() {
@@ -361,7 +375,9 @@ final class AIPreferencesViewController: NSViewController {
             [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
             [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup],
             [NSGridCell.emptyContentView, autoTranslateCheckbox],
-            [NSGridCell.emptyContentView, autoTranslateTitlesCheckbox]
+            [NSGridCell.emptyContentView, autoTranslateTitlesCheckbox],
+            [NSGridCell.emptyContentView, hoverTranslationCheckbox],
+            [NSTextField(labelWithString: "Hover Modifier:"), hoverModifierPopup]
         ])
         topGrid.rowSpacing = 8
         topGrid.column(at: 0).xPlacement = .trailing
@@ -504,6 +520,17 @@ final class AIPreferencesViewController: NSViewController {
     @objc private func languageChanged(_ sender: NSPopUpButton) { settings.outputLanguage = sender.titleOfSelectedItem ?? "English" }
     @objc private func toggleAutoTranslate(_ sender: NSButton) { settings.autoTranslate = (sender.state == .on) }
     @objc private func toggleAutoTranslateTitles(_ sender: NSButton) { settings.autoTranslateTitles = (sender.state == .on) }
+    
+    @objc private func toggleHoverTranslation(_ sender: NSButton) { 
+        settings.hoverTranslationEnabled = (sender.state == .on) 
+        hoverModifierPopup.isEnabled = settings.hoverTranslationEnabled
+    }
+    
+    @objc private func hoverModifierChanged(_ sender: NSPopUpButton) { 
+        if let key = AISettings.ModifierKey(rawValue: sender.titleOfSelectedItem ?? "Control") {
+            settings.hoverModifier = key 
+        }
+    }
     
     @objc private func resetSummaryPrompt() {
         settings.resetSummaryPrompt()
