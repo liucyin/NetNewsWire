@@ -12,7 +12,6 @@ enum AIServiceError: Error {
 
 actor AIService {
     static let shared = AIService()
-    private let settings = AISettings.shared
     
     // Simple session
     private let session = URLSession.shared
@@ -20,13 +19,13 @@ actor AIService {
     private init() {}
     
     func summarize(text: String) async throws -> String {
-        let summaryPrompt = await settings.summaryPrompt
+        let summaryPrompt = await AISettings.shared.summaryPrompt
         let prompt = "\(summaryPrompt)\n\n<article_content>\n\(text)\n</article_content>"
         return try await performChatRequest(systemPrompt: "You are a helpful assistant that summarizes articles.", userPrompt: prompt, usage: .summary)
     }
     
     func translate(text: String, targetLanguage: String) async throws -> String {
-        var promptTemplate = await settings.translationPrompt
+        var promptTemplate = await AISettings.shared.translationPrompt
         promptTemplate = promptTemplate.replacingOccurrences(of: "%TARGET_LANGUAGE%", with: targetLanguage)
         let prompt = "\(promptTemplate)\n\n<text_to_translate>\n\(text)\n</text_to_translate>"
         return try await performChatRequest(systemPrompt: "You are a helpful assistant that translates articles.", userPrompt: prompt, usage: .translation)
@@ -38,13 +37,13 @@ actor AIService {
     }
     
     private func performChatRequest(systemPrompt: String, userPrompt: String, usage: AISettings.AIUsage) async throws -> String {
-        let apiKey = await settings.apiKey(for: usage)
+        let apiKey = await AISettings.shared.apiKey(for: usage)
         guard !apiKey.isEmpty else {
             throw AIServiceError.noAPIKey
         }
         
         // Fetch Base URL based on usage (Summary/Translation/General)
-        let baseURLStr = await settings.baseURL(for: usage)
+        let baseURLStr = await AISettings.shared.baseURL(for: usage)
         
         // Ensure URL ends with /v1/chat/completions (generic OpenAI compatible)
         // If user enters "https://api.openai.com/v1", we want "https://api.openai.com/v1/chat/completions"
@@ -70,7 +69,7 @@ actor AIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         // Fetch Model based on usage
-        let profileModel = await settings.model(for: usage)
+        let profileModel = await AISettings.shared.model(for: usage)
         let model = profileModel.isEmpty ? "gpt-4o-mini" : profileModel
         
         let messages: [[String: String]] = [

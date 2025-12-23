@@ -179,7 +179,7 @@ final class DetailViewController: NSViewController, WKUIDelegate {
             for (id, text) in map {
                 group.addTask {
                     do {
-                        let target = AISettings.shared.outputLanguage
+                        let target = await AISettings.shared.outputLanguage
                         let translation = try await AIService.shared.translate(text: text, targetLanguage: target)
                         return (id, translation)
                     } catch {
