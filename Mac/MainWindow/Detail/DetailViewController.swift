@@ -160,8 +160,6 @@ final class DetailViewController: NSViewController, WKUIDelegate {
              }
          }
     }
-         }
-    }
 
     func performTranslation() async {
         guard let webVC = currentWebViewController, let article = webVC.article else { return }
