@@ -129,6 +129,7 @@ final class DetailViewController: NSViewController, WKUIDelegate {
          guard let webVC = currentWebViewController, let article = webVC.article else { return }
          let articleID = article.articleID
          let title = article.title ?? ""
+         print("DEBUG: performTitleTranslation start for \(articleID.prefix(8))")
          guard !title.isEmpty else { return }
          
          let recognizer = NLLanguageRecognizer()
@@ -140,12 +141,18 @@ final class DetailViewController: NSViewController, WKUIDelegate {
              
              if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
                  do {
+                     print("DEBUG: Calling fetchOrTranslateTitle for \(articleID.prefix(8))")
                      // Use centralised fetch/task manager
                      let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
+                     print("DEBUG: fetchOrTranslateTitle returned for \(articleID.prefix(8))")
                      
                      // Verify context matches the original request
-                     guard webVC.article?.articleID == articleID else { return }
+                     guard webVC.article?.articleID == articleID else {
+                         print("DEBUG: Context mismatch for \(articleID.prefix(8)), aborting injection")
+                         return 
+                     }
                      
+                     print("DEBUG: Injecting translated title for \(articleID.prefix(8))")
                      webVC.injectTitleTranslation(translated)
                  } catch {
                      print("Title Translation Error: \(error)")
@@ -230,7 +237,10 @@ extension DetailViewController: DetailWebViewControllerDelegate {
             
             let cachedTitle = AICacheManager.shared.getTitleTranslation(for: articleID)
             if let titleText = cachedTitle {
+                print("DEBUG: Restoring Title Cache for \(articleID.prefix(8))")
                 detailWebViewController.injectTitleTranslation(titleText)
+            } else {
+                print("DEBUG: No Title Cache for \(articleID.prefix(8))")
             }
             
             // If fully cached, return
