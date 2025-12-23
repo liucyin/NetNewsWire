@@ -62,6 +62,7 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 	}
 
 	private var isArticleContentJavascriptEnabled = AppDefaults.shared.isArticleContentJavascriptEnabled
+    private var localEventMonitor: Any?
 
 	override func viewDidLoad() {
 		currentWebViewController = regularWebViewController
@@ -70,7 +71,35 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 				self?.userDefaultsDidChange()
 			}
 		}
+        
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            Task { @MainActor in
+                guard let self = self else { return }
+                if !AISettings.shared.hoverTranslationEnabled { return }
+                
+                let modifier = AISettings.shared.hoverModifier
+                let flags = event.modifierFlags
+                
+                var matches = false
+                switch modifier {
+                case .control: matches = flags.contains(.control)
+                case .option: matches = flags.contains(.option)
+                case .command: matches = flags.contains(.command)
+                }
+                
+                if matches {
+                    self.currentWebViewController.triggerHoverAction()
+                }
+            }
+            return event
+        }
 	}
+    
+    deinit {
+        if let monitor = localEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
 
 	// MARK: - API
 

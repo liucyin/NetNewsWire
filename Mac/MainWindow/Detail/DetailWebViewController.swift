@@ -59,6 +59,10 @@ final class DetailWebViewController: NSViewController {
 
 	private var articleTextSize = AppDefaults.shared.articleTextSize
 
+    @MainActor func triggerHoverAction() {
+        webView.evaluateJavaScript("if (window.triggerHoverAction) { window.triggerHoverAction(); }")
+    }
+
 	private var webInspectorEnabled: Bool {
 		get {
 			return webView.configuration.preferences._developerExtrasEnabled
@@ -638,9 +642,26 @@ extension DetailWebViewController {
         (function() {
             var lastHoveredNode = null;
             
-            // Track hover
+            function triggerAction(node) {
+                if (!node.id) {
+                    node.id = 'ai-hover-' + Math.random().toString(36).substr(2, 9);
+                }
+                var next = node.nextElementSibling;
+                if (next && next.classList.contains('ai-translation')) {
+                    if (next.style.display === 'none') {
+                       next.style.display = 'block';
+                    } else {
+                       next.style.display = 'none';
+                    }
+                } else {
+                    var text = node.innerText.trim();
+                    if (text.length > 0) {
+                         window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+                    }
+                }
+            }
+            
             document.addEventListener('mouseover', function(e) {
-                // Ensure we target valid logic containers (p, li, h1-6, blockquote)
                 var target = e.target;
                 while (target && target !== document.body) {
                     var tag = target.tagName.toLowerCase();
@@ -653,35 +674,21 @@ extension DetailWebViewController {
                 lastHoveredNode = null;
             });
 
-            // Listen for keydown
+            document.addEventListener('mouseleave', function() {
+                lastHoveredNode = null;
+            });
+
             document.addEventListener('keydown', function(e) {
-                // Check modifier key
                 if (e.\(keyProperty) && lastHoveredNode) {
-                    var node = lastHoveredNode;
-                    
-                    // Assign ID if needed to ensure we can target it back
-                    if (!node.id) {
-                        node.id = 'ai-hover-' + Math.random().toString(36).substr(2, 9);
-                    }
-                    
-                    // 1. Check if we have translation already
-                    var next = node.nextElementSibling;
-                    if (next && next.classList.contains('ai-translation')) {
-                        // Toggle visibility
-                        if (next.style.display === 'none') {
-                           next.style.display = 'block';
-                        } else {
-                           next.style.display = 'none';
-                        }
-                    } else {
-                        // Request Translation
-                        var text = node.innerText.trim();
-                        if (text.length > 0) {
-                             window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
-                        }
-                    }
+                    triggerAction(lastHoveredNode);
                 }
             });
+            
+            window.triggerHoverAction = function() {
+                if (lastHoveredNode) {
+                    triggerAction(lastHoveredNode);
+                }
+            };
         })();
         """
         webView.evaluateJavaScript(js)

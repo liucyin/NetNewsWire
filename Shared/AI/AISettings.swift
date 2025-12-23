@@ -43,6 +43,7 @@ final class AISettings: ObservableObject {
         static let aiSummaryPrompt = "aiSummaryPrompt"
         static let aiTranslationPrompt = "aiTranslationPrompt"
         static let aiHoverModifier = "aiHoverModifier"
+        static let aiHoverTranslationEnabled = "aiHoverTranslationEnabled"
         
         // Legacy keys for migration
         static let aiProvider = "aiProvider"
@@ -202,6 +203,14 @@ final class AISettings: ObservableObject {
         get { defaults.bool(forKey: Keys.aiAutoTranslateTitles) }
         set {
             defaults.set(newValue, forKey: Keys.aiAutoTranslateTitles)
+            objectWillChange.send()
+        }
+    }
+
+    var hoverTranslationEnabled: Bool {
+        get { defaults.object(forKey: Keys.aiHoverTranslationEnabled) as? Bool ?? true }
+        set {
+            defaults.set(newValue, forKey: Keys.aiHoverTranslationEnabled)
             objectWillChange.send()
         }
     }
