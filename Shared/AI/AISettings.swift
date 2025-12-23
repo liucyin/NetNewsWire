@@ -42,6 +42,7 @@ final class AISettings: ObservableObject {
         
         static let aiSummaryPrompt = "aiSummaryPrompt"
         static let aiTranslationPrompt = "aiTranslationPrompt"
+        static let aiHoverModifier = "aiHoverModifier"
         
         // Legacy keys for migration
         static let aiProvider = "aiProvider"
@@ -252,6 +253,34 @@ You are a professional translator who needs to fluently translate text into %TAR
     func resetSummaryPrompt() {
         defaults.removeObject(forKey: Keys.aiSummaryPrompt)
         objectWillChange.send()
+    }
+    
+    enum ModifierKey: String, CaseIterable, Identifiable {
+        case control = "Control"
+        case option = "Option"
+        case command = "Command"
+        
+        var id: String { rawValue }
+        
+        // JS event property to check
+        var jsProperty: String {
+            switch self {
+            case .control: return "ctrlKey"
+            case .option: return "altKey"
+            case .command: return "metaKey"
+            }
+        }
+    }
+
+    var hoverModifier: ModifierKey {
+        get {
+            let raw = defaults.string(forKey: Keys.aiHoverModifier) ?? "Control"
+            return ModifierKey(rawValue: raw) ?? .control
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Keys.aiHoverModifier)
+            objectWillChange.send()
+        }
     }
     
     func resetTranslationPrompt() {

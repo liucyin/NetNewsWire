@@ -16,6 +16,7 @@ import Articles
 	func mouseDidEnter(_: DetailWebViewController, link: String)
 	func mouseDidExit(_: DetailWebViewController)
     func detailWebViewControllerDidFinishLoad(_: DetailWebViewController)
+    func requestTranslation(id: String, text: String)
 }
 
 struct AIPhrase: Decodable {
@@ -85,6 +86,7 @@ final class DetailWebViewController: NSViewController {
 		static let mouseDidEnter = "mouseDidEnter"
 		static let mouseDidExit = "mouseDidExit"
 		static let windowDidScroll = "windowDidScroll"
+        static let requestTranslation = "requestTranslation"
 	}
 
 	override func loadView() {
@@ -94,6 +96,7 @@ final class DetailWebViewController: NSViewController {
 		configuration.userContentController.add(self, name: MessageName.windowDidScroll)
 		configuration.userContentController.add(self, name: MessageName.mouseDidEnter)
 		configuration.userContentController.add(self, name: MessageName.mouseDidExit)
+        configuration.userContentController.add(self, name: MessageName.requestTranslation)
 
 		webView = DetailWebView(frame: NSRect.zero, configuration: configuration)
 		webView.uiDelegate = self
@@ -190,6 +193,10 @@ extension DetailWebViewController: WKScriptMessageHandler {
 			delegate?.mouseDidEnter(self, link: link)
 		} else if message.name == MessageName.mouseDidExit {
 			delegate?.mouseDidExit(self)
+        } else if message.name == MessageName.requestTranslation {
+            if let body = message.body as? [String: String], let id = body["id"], let text = body["text"] {
+                delegate?.requestTranslation(id: id, text: text)
+            }
 		}
 	}
 }
@@ -626,7 +633,59 @@ extension DetailWebViewController {
         try? await webView.evaluateJavaScript(js)
     }
 
-    // Returns a dictionary of [ID: Text]
+    func injectHoverListener(keyProperty: String) {
+        let js = """
+        (function() {
+            var lastHoveredNode = null;
+            
+            // Track hover
+            document.addEventListener('mouseover', function(e) {
+                // Ensure we target valid logic containers (p, li, h1-6, blockquote)
+                var target = e.target;
+                while (target && target !== document.body) {
+                    var tag = target.tagName.toLowerCase();
+                    if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
+                        lastHoveredNode = target;
+                        return;
+                    }
+                    target = target.parentElement;
+                }
+                lastHoveredNode = null;
+            });
+
+            // Listen for keydown
+            document.addEventListener('keydown', function(e) {
+                // Check modifier key
+                if (e.\(keyProperty) && lastHoveredNode) {
+                    var node = lastHoveredNode;
+                    
+                    // Assign ID if needed to ensure we can target it back
+                    if (!node.id) {
+                        node.id = 'ai-hover-' + Math.random().toString(36).substr(2, 9);
+                    }
+                    
+                    // 1. Check if we have translation already
+                    var next = node.nextElementSibling;
+                    if (next && next.classList.contains('ai-translation')) {
+                        // Toggle visibility
+                        if (next.style.display === 'none') {
+                           next.style.display = 'block';
+                        } else {
+                           next.style.display = 'none';
+                        }
+                    } else {
+                        // Request Translation
+                        var text = node.innerText.trim();
+                        if (text.length > 0) {
+                             window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+                        }
+                    }
+                }
+            });
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
     func prepareForTranslation() async -> [String: String] {
         // Force re-indexing before translation to ensure current DOM order is captured accurately
         await ensureStableIDs(force: true)

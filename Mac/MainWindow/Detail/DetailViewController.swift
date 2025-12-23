@@ -217,6 +217,9 @@ extension DetailViewController: DetailWebViewControllerDelegate {
         let articleID = article.articleID
         
         Task { @MainActor in
+            // Inject Hover Listener
+            detailWebViewController.injectHoverListener(keyProperty: AISettings.shared.hoverModifier.jsProperty)
+
             // 1. Restore Summary Cache first (because it adds content to DOM)
             if let cachedSummary = AICacheManager.shared.getSummary(for: articleID) {
                 detailWebViewController.injectAISummary(cachedSummary)
@@ -318,6 +321,37 @@ extension DetailViewController: DetailWebViewControllerDelegate {
 		}
 		statusBarView.mouseoverLink = nil
 	}
+
+    func requestTranslation(id: String, text: String) {
+        guard let webVC = currentWebViewController, let article = webVC.article else { return }
+        let articleID = article.articleID
+        
+        Task { @MainActor in
+            // Check cache
+            var existingMap = AICacheManager.shared.getTranslation(for: articleID) ?? [:]
+            
+            if let cached = existingMap[id] {
+                webVC.injectTranslation(id: id, text: cached)
+                return
+            }
+            
+            // Translate
+            do {
+                print("DEBUG: Hover Translation requested for \(id)")
+                let target = AISettings.shared.outputLanguage
+                let translated = try await AIService.shared.translate(text: text, targetLanguage: target)
+                
+                // Inject
+                webVC.injectTranslation(id: id, text: translated)
+                
+                // Save
+                existingMap[id] = translated
+                AICacheManager.shared.saveTranslation(existingMap, for: articleID)
+            } catch {
+                print("Hover Translation Failed: \(error)")
+            }
+        }
+    }
 }
 
 // MARK: - Private
