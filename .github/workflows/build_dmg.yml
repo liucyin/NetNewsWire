@@ -29,9 +29,9 @@ jobs:
             -configuration Release \
             -derivedDataPath build \
             -destination 'generic/platform=macOS' \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED="NO" \
-            AD_HOC_CODE_SIGNING_ALLOWED="YES"
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Install create-dmg
         run: brew install create-dmg
