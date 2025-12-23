@@ -105,13 +105,20 @@ import RSCore
 
 		let iconSpace = showIcon ? appearance.iconSize.width + appearance.iconMarginRight : 0.0
 		
-		// The right obstruction is the maximum of Date X or Thumbnail X (since both are right-aligned, we care about minX)
-		// Usually Thumbnail is wider (minX is smaller). If no thumbnail, Date is the rightmost element.
-		
-		let rightObstructionMinX = showArticleThumbnail ? min(dateRect.minX, thumbnailRect.minX) : dateRect.minX
-		
-		// Margin between text and right column
-		let rightMargin = showArticleThumbnail ? appearance.articleThumbnailMarginLeft : appearance.dateMarginLeft
+		let rightObstructionMinX: CGFloat
+		let rightMargin: CGFloat
+
+		if showArticleThumbnail {
+			// The right obstruction is the maximum of Date X or Thumbnail X (since both are right-aligned, we care about minX)
+			// Usually Thumbnail is wider (minX is smaller).
+			rightObstructionMinX = min(dateRect.minX, thumbnailRect.minX)
+			rightMargin = appearance.articleThumbnailMarginLeft
+		} else {
+			// If no thumbnail, the title/summary/text are below the date, so they can extend to the full width
+			rightObstructionMinX = width - appearance.cellPadding.right
+			// No extra margin needed as we are using the cell padding right
+			rightMargin = 0
+		}
 		
 		let textBoxOriginX = appearance.cellPadding.left + appearance.unreadCircleDimension + appearance.unreadCircleMarginRight + iconSpace
 		
@@ -149,8 +156,17 @@ import RSCore
 		r.origin.y = textBoxRect.origin.y // Align top with text box (and date)
 		r.origin.x = textBoxRect.origin.x
 		
-		// Feed Name takes full width of text box
-		r.size.width = textBoxRect.width
+		// Feed Name takes width up to the Date column
+		let feedNameMaxX = dateRect.minX - appearance.dateMarginLeft
+		let availableWidth = feedNameMaxX - r.origin.x
+		
+		// Ensure positive width, but don't force it to be smaller than textFieldSize if it fits?
+		// No, feed name truncates. We define the rect size here.
+		// Layout logic elsewhere (drawing) handles truncation if rect is small.
+		// Note: textFieldSize is the *ideal* size. We should clamp it.
+		
+		r.size.width = min(textFieldSize.width, availableWidth)
+		if r.size.width < 0 { r.size.width = 0 }
 
 		return r
 	}
