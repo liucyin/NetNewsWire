@@ -199,38 +199,52 @@ final class DetailViewController: NSViewController, WKUIDelegate {
         }
         
         let map = await webVC.prepareForTranslation()
-        // let total = map.count
+        
+        // Determine which items need translation (not in cache)
+        let cached = AICacheManager.shared.getTranslation(for: article.articleID) ?? [:]
+        let itemsToTranslate = map.filter { cached[$0.key] == nil }
+        
+        // Show Loading for all items to be translated
+        for id in itemsToTranslate.keys {
+             webVC.showTranslationLoading(for: id)
+        }
         
         var translatedMap: [String: String] = [:]
         
         // Translate in parallel or batches
-        await withTaskGroup(of: (String, String)?.self) { group in
-            for (id, text) in map {
+        await withTaskGroup(of: (String, String, Error?)?.self) { group in
+            for (id, text) in itemsToTranslate {
                 group.addTask {
                     do {
                         let target = await AISettings.shared.outputLanguage
                         let translation = try await AIService.shared.translate(text: text, targetLanguage: target)
-                        return (id, translation)
+                        return (id, translation, nil)
                     } catch {
                         print("Translation failed for \(id): \(error)")
-                        return nil
+                        return (id, "", error)
                     }
                 }
             }
             
             for await result in group {
-                if let (id, translation) = result {
+                if let (id, translation, error) = result {
                     await MainActor.run {
-                        webVC.injectTranslation(id: id, text: translation)
+                        if let error = error {
+                            webVC.showTranslationError(for: id, message: error.localizedDescription)
+                        } else {
+                            webVC.injectTranslation(id: id, text: translation)
+                            translatedMap[id] = translation
+                        }
                     }
-                    translatedMap[id] = translation
                 }
             }
         }
         
-        // Save results to cache
+        // Save results to cache (merge with existing)
         if !translatedMap.isEmpty {
-            AICacheManager.shared.saveTranslation(translatedMap, for: article.articleID)
+            var finalMap = cached
+            finalMap.merge(translatedMap) { (_, new) in new }
+            AICacheManager.shared.saveTranslation(finalMap, for: article.articleID)
         }
     }
 }
@@ -364,6 +378,9 @@ extension DetailViewController: DetailWebViewControllerDelegate {
                 return
             }
             
+            // Show Loading State immediately
+            webVC.showTranslationLoading(for: id)
+            
             // Translate
             do {
                 print("DEBUG: Hover Translation requested for \(id)")
@@ -378,6 +395,7 @@ extension DetailViewController: DetailWebViewControllerDelegate {
                 AICacheManager.shared.saveTranslation(existingMap, for: articleID)
             } catch {
                 print("Hover Translation Failed: \(error)")
+                webVC.showTranslationError(for: id, message: error.localizedDescription)
             }
         }
     }

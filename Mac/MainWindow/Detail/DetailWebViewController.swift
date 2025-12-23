@@ -693,6 +693,72 @@ extension DetailWebViewController {
         """
         webView.evaluateJavaScript(js)
     }
+    func showTranslationLoading(for id: String) {
+        let jsonId = (try? String(data: JSONEncoder().encode(id), encoding: .utf8)) ?? "\"\""
+        let js = """
+        (function() {
+            var node = document.getElementById(\(jsonId));
+            if (node) {
+                var loadingHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px; opacity: 0.9;">
+                        <span style="font-size: 13px; animation: pulse 1.5s infinite; color: var(--secondary-label-color);">Translating...</span>
+                    </div>
+                `;
+                // Pulse styling is likely already injected by summary, but we can re-inject or assume it exists if summary is used. 
+                // To be safe and self-contained:
+                loadingHTML += `<style>@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }</style>`;
+                
+                var existing = node.nextElementSibling;
+                if (existing && existing.className == 'ai-translation') {
+                    existing.style.display = 'block';
+                    existing.innerHTML = loadingHTML;
+                } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-translation';
+                    div.style.color = 'var(--secondary-label-color)';
+                    div.style.marginTop = '6px';
+                    div.style.marginBottom = '16px';
+                    div.style.paddingLeft = '12px';
+                    div.style.borderLeft = '3px solid var(--accent-color)';
+                    div.innerHTML = loadingHTML;
+                    node.parentNode.insertBefore(div, node.nextSibling);
+                }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+
+    func showTranslationError(for id: String, message: String) {
+        let jsonId = (try? String(data: JSONEncoder().encode(id), encoding: .utf8)) ?? "\"\""
+        let jsonMsg = (try? String(data: JSONEncoder().encode(message), encoding: .utf8)) ?? "\"Error\""
+        
+        let js = """
+        (function() {
+            var node = document.getElementById(\(jsonId));
+            if (node) {
+                var errorHTML = `<div style="color: red; font-size: 0.9em;">⚠️ Translation Error: ` + \(jsonMsg) + `</div>`;
+                
+                var existing = node.nextElementSibling;
+                if (existing && existing.className == 'ai-translation') {
+                    existing.style.display = 'block';
+                    existing.innerHTML = errorHTML;
+                } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-translation';
+                    div.style.marginTop = '6px';
+                    div.style.marginBottom = '16px';
+                    div.style.paddingLeft = '12px';
+                    div.style.borderLeft = '3px solid red';
+                    div.innerHTML = errorHTML;
+                    node.parentNode.insertBefore(div, node.nextSibling);
+                }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+
     func prepareForTranslation() async -> [String: String] {
         // Force re-indexing before translation to ensure current DOM order is captured accurately
         await ensureStableIDs(force: true)
