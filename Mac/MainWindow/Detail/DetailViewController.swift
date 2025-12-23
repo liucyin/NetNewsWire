@@ -138,6 +138,8 @@ final class DetailViewController: NSViewController, WKUIDelegate {
              let targetLang = AISettings.shared.outputLanguage
              let targetIso = isoCode(for: targetLang)
              
+             if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
+                 do {
                      // Use centralised fetch/task manager
                      let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
                      
