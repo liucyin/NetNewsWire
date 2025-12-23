@@ -61,10 +61,12 @@ final class AICacheManager {
         
         // 3. Create new task
         print("AICache: Starting new title task for \(articleID.prefix(8))")
-        let task = Task {
+        let task = Task.detached(priority: .userInitiated) {
             let translated = try await AIService.shared.translate(text: title, targetLanguage: targetLang)
-            // Save to cache (Already on MainActor context due to class isolation)
-            self.saveTitleTranslation(translated, for: articleID)
+            
+            // Save to cache (MainActor isolated)
+            await AICacheManager.shared.saveTitleTranslation(translated, for: articleID)
+            
             print("AICache: Saved title for \(articleID.prefix(8))")
             return translated
         }
