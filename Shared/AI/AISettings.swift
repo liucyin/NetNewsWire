@@ -20,6 +20,7 @@ struct AIProviderProfile: Codable, Identifiable, Hashable {
     }
 }
 
+@MainActor
 final class AISettings: ObservableObject {
     static let shared = AISettings()
     private let defaults = UserDefaults.standard

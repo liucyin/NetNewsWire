@@ -20,12 +20,13 @@ actor AIService {
     private init() {}
     
     func summarize(text: String) async throws -> String {
-        let prompt = "\(settings.summaryPrompt)\n\n<article_content>\n\(text)\n</article_content>"
+        let summaryPrompt = await settings.summaryPrompt
+        let prompt = "\(summaryPrompt)\n\n<article_content>\n\(text)\n</article_content>"
         return try await performChatRequest(systemPrompt: "You are a helpful assistant that summarizes articles.", userPrompt: prompt, usage: .summary)
     }
     
     func translate(text: String, targetLanguage: String) async throws -> String {
-        var promptTemplate = settings.translationPrompt
+        var promptTemplate = await settings.translationPrompt
         promptTemplate = promptTemplate.replacingOccurrences(of: "%TARGET_LANGUAGE%", with: targetLanguage)
         let prompt = "\(promptTemplate)\n\n<text_to_translate>\n\(text)\n</text_to_translate>"
         return try await performChatRequest(systemPrompt: "You are a helpful assistant that translates articles.", userPrompt: prompt, usage: .translation)
@@ -37,13 +38,13 @@ actor AIService {
     }
     
     private func performChatRequest(systemPrompt: String, userPrompt: String, usage: AISettings.AIUsage) async throws -> String {
-        let apiKey = settings.apiKey(for: usage)
+        let apiKey = await settings.apiKey(for: usage)
         guard !apiKey.isEmpty else {
             throw AIServiceError.noAPIKey
         }
         
         // Fetch Base URL based on usage (Summary/Translation/General)
-        let baseURLStr = settings.baseURL(for: usage)
+        let baseURLStr = await settings.baseURL(for: usage)
         
         // Ensure URL ends with /v1/chat/completions (generic OpenAI compatible)
         // If user enters "https://api.openai.com/v1", we want "https://api.openai.com/v1/chat/completions"
@@ -69,7 +70,7 @@ actor AIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         // Fetch Model based on usage
-        let profileModel = settings.model(for: usage)
+        let profileModel = await settings.model(for: usage)
         let model = profileModel.isEmpty ? "gpt-4o-mini" : profileModel
         
         let messages: [[String: String]] = [
