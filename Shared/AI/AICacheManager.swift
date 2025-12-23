@@ -76,8 +76,8 @@ final class AICacheManager {
         // Monitor task for cleanup (independent of caller cancellation)
         Task { [articleID, task] in
             _ = await task.result // Wait for completion
-            if activeTitleTasks[articleID] == task {
-                activeTitleTasks[articleID] = nil
+            if self.activeTitleTasks[articleID] == task {
+                self.activeTitleTasks[articleID] = nil
                 print("AICache: Managed cleanup for \(articleID.prefix(8))")
             }
         }
