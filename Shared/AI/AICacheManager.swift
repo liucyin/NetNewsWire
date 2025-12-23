@@ -73,19 +73,16 @@ final class AICacheManager {
         
         activeTitleTasks[articleID] = task
         
-        do {
-            let result = try await task.value
+        // Monitor task for cleanup (independent of caller cancellation)
+        Task { [articleID, task] in
+            _ = await task.result // Wait for completion
             if activeTitleTasks[articleID] == task {
                 activeTitleTasks[articleID] = nil
+                print("AICache: Managed cleanup for \(articleID.prefix(8))")
             }
-            return result
-        } catch {
-            print("AICache: Title task failed for \(articleID.prefix(8)): \(error)")
-            if activeTitleTasks[articleID] == task {
-                activeTitleTasks[articleID] = nil
-            }
-            throw error
         }
+        
+        return try await task.value
     }
     
     func saveTitleTranslation(_ text: String, for articleID: String) {
