@@ -380,19 +380,20 @@ final class AIPreferencesViewController: NSViewController {
 		        scroll.hasVerticalScroller = true
 		        scroll.borderType = .bezelBorder
 		        
-        let topGrid = NSGridView(views: [
-            [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
-            [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup]
-        ])
-        topGrid.rowSpacing = 12
-        topGrid.columnSpacing = 12
-        topGrid.column(at: 0).xPlacement = .trailing
+	        let topGrid = NSGridView(views: [
+	            [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
+	            [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup]
+	        ])
+	        topGrid.rowSpacing = 8
+	        topGrid.columnSpacing = 12
+	        topGrid.column(at: 0).xPlacement = .trailing
+	        topGrid.setContentCompressionResistancePriority(.required, for: .vertical)
 
-        NSLayoutConstraint.activate([
-            translationProviderPopup.widthAnchor.constraint(equalToConstant: 280),
-            outputLanguagePopup.widthAnchor.constraint(equalToConstant: 280),
-            hoverModifierPopup.widthAnchor.constraint(equalToConstant: 140)
-        ])
+	        NSLayoutConstraint.activate([
+	            translationProviderPopup.widthAnchor.constraint(equalToConstant: 280),
+	            outputLanguagePopup.widthAnchor.constraint(equalToConstant: 280),
+	            hoverModifierPopup.widthAnchor.constraint(equalToConstant: 140)
+	        ])
 
         let hoverOptionsGrid = NSGridView(views: [
             [NSTextField(labelWithString: "Hover Modifier:"), hoverModifierPopup]
@@ -413,13 +414,14 @@ final class AIPreferencesViewController: NSViewController {
 	        ])
 	        optionsStack.orientation = .vertical
 	        optionsStack.alignment = .leading
-	        optionsStack.spacing = 16
+	        optionsStack.spacing = 8
 	        optionsStack.setHuggingPriority(.defaultLow, for: .horizontal)
-        optionsStack.translatesAutoresizingMaskIntoConstraints = false
+	        optionsStack.setContentCompressionResistancePriority(.required, for: .vertical)
+	        optionsStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let resetBtn = NSButton(title: "Reset Prompt", target: self, action: #selector(resetTranslationPrompt))
-        let clearCacheBtn = NSButton(title: "Clear Cache", target: self, action: #selector(clearTranslationCache))
-        
+	        let resetBtn = NSButton(title: "Reset Prompt", target: self, action: #selector(resetTranslationPrompt))
+	        let clearCacheBtn = NSButton(title: "Clear Cache", target: self, action: #selector(clearTranslationCache))
+	        
 	        let contentStack = NSStackView(views: [
 	            topGrid,
 	            optionsStack,
@@ -427,22 +429,24 @@ final class AIPreferencesViewController: NSViewController {
 	            scroll,
 	            NSStackView(views: [resetBtn, clearCacheBtn])
 	        ])
-        contentStack.orientation = .vertical
-        contentStack.alignment = .leading
-        contentStack.spacing = 16
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        
-        view.addSubview(contentStack)
-        NSLayoutConstraint.activate([
-            contentStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
-            contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
-            scroll.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
-            // translationPromptField.widthAnchor.constraint(equalTo: scroll.widthAnchor), // Handled by autoresizing mask
-            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
-        ])
-    }
+	        contentStack.orientation = .vertical
+	        contentStack.alignment = .leading
+	        contentStack.spacing = 8
+	        contentStack.translatesAutoresizingMaskIntoConstraints = false
+	        
+	        view.addSubview(contentStack)
+	        scroll.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+	        scroll.setContentHuggingPriority(.defaultLow, for: .vertical)
+	        NSLayoutConstraint.activate([
+	            contentStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
+	            contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+	            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+	            contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+	            scroll.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+	            // translationPromptField.widthAnchor.constraint(equalTo: scroll.widthAnchor), // Handled by autoresizing mask
+	            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 100)
+	        ])
+	    }
     
     // MARK: - Logic
     
