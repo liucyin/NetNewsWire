@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import ImageIO
 import RSCore
 
 final class TimelineTableCellView: NSTableCellView {
@@ -32,6 +33,15 @@ final class TimelineTableCellView: NSTableCellView {
 		imageView.layer?.masksToBounds = true
 		return imageView
 	}()
+
+	private static let articleThumbnailCache: NSCache<NSString, NSImage> = {
+		let cache = NSCache<NSString, NSImage>()
+		cache.countLimit = 256
+		return cache
+	}()
+
+	private var articleThumbnailTask: Task<Void, Never>?
+	private var currentArticleThumbnailKey: NSString?
 
 	private lazy var textFields = {
 		return [self.dateView, self.feedNameView, self.titleView, self.summaryView, self.textView]
@@ -319,25 +329,110 @@ private extension TimelineTableCellView {
 	func updateArticleThumbnail() {
 		guard AppDefaults.shared.timelineShowsArticleThumbnails,
 			  let imageURL = cellData?.articleImageURL else {
+			articleThumbnailTask?.cancel()
+			articleThumbnailTask = nil
+			currentArticleThumbnailKey = nil
 			hideView(articleThumbnailView)
 			articleThumbnailView.image = nil
 			return
 		}
 
-		if let imageData = ImageDownloader.shared.image(for: imageURL) {
-			if let image = NSImage(data: imageData) {
-				showView(articleThumbnailView)
-				articleThumbnailView.image = image.imageByScalingToFill(targetSize: cellAppearance.articleThumbnailSize)
-				needsLayout = true
-			} else {
-				hideView(articleThumbnailView)
-				articleThumbnailView.image = nil
-			}
-		} else {
-			// Image not yet downloaded, hide for now
+		let targetSize = cellAppearance.articleThumbnailSize
+		let screenScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+		let cacheKey = "\(imageURL)|\(Int(targetSize.width))x\(Int(targetSize.height))@\(Int(screenScale * 100))" as NSString
+
+		if currentArticleThumbnailKey == cacheKey, articleThumbnailTask != nil {
+			return
+		}
+
+		currentArticleThumbnailKey = cacheKey
+
+		articleThumbnailTask?.cancel()
+		articleThumbnailTask = nil
+
+		if let cachedImage = Self.articleThumbnailCache.object(forKey: cacheKey) {
+			showView(articleThumbnailView)
+			articleThumbnailView.image = cachedImage
+			needsLayout = true
+			return
+		}
+
+		guard let imageData = ImageDownloader.shared.image(for: imageURL) else {
 			hideView(articleThumbnailView)
 			articleThumbnailView.image = nil
+			return
 		}
+
+		hideView(articleThumbnailView)
+		articleThumbnailView.image = nil
+
+		articleThumbnailTask = Task(priority: .utility) { [weak self] in
+			guard !Task.isCancelled else { return }
+			guard let cgImage = Self.makeThumbnailCGImage(from: imageData, targetSize: targetSize, screenScale: screenScale) else {
+				return
+			}
+			guard !Task.isCancelled else { return }
+
+			let image = NSImage(cgImage: cgImage, size: targetSize)
+			await MainActor.run {
+				guard let self, self.currentArticleThumbnailKey == cacheKey else { return }
+				Self.articleThumbnailCache.setObject(image, forKey: cacheKey)
+				self.showView(self.articleThumbnailView)
+				self.articleThumbnailView.image = image
+				self.needsLayout = true
+			}
+		}
+	}
+
+	private static func makeThumbnailCGImage(from data: Data, targetSize: NSSize, screenScale: CGFloat) -> CGImage? {
+		let targetPixelSize = CGSize(width: targetSize.width * screenScale, height: targetSize.height * screenScale)
+		let width = Int(targetPixelSize.width.rounded(.up))
+		let height = Int(targetPixelSize.height.rounded(.up))
+		guard width > 0, height > 0 else {
+			return nil
+		}
+
+		let maxPixelSize = max(width, height) * 2
+		guard maxPixelSize > 0 else {
+			return nil
+		}
+
+		guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil) else {
+			return nil
+		}
+
+		let options: [CFString: Any] = [
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceShouldCacheImmediately: true,
+			kCGImageSourceThumbnailMaxPixelSize: NSNumber(value: maxPixelSize)
+		]
+
+		guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+			return nil
+		}
+
+		guard let context = CGContext(
+			data: nil,
+			width: width,
+			height: height,
+			bitsPerComponent: 8,
+			bytesPerRow: 0,
+			space: CGColorSpaceCreateDeviceRGB(),
+			bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+		) else {
+			return nil
+		}
+
+		context.interpolationQuality = .high
+
+		let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
+		let scaleFactor = max(CGFloat(width) / imageSize.width, CGFloat(height) / imageSize.height)
+		let drawSize = CGSize(width: imageSize.width * scaleFactor, height: imageSize.height * scaleFactor)
+		let drawOrigin = CGPoint(x: (CGFloat(width) - drawSize.width) / 2, y: (CGFloat(height) - drawSize.height) / 2)
+		context.draw(cgImage, in: CGRect(origin: drawOrigin, size: drawSize))
+
+		return context.makeImage()
 	}
 
 	func updateSubviews() {

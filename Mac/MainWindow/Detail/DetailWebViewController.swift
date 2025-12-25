@@ -357,15 +357,14 @@ private extension DetailWebViewController {
 
 		imageViewerTask?.cancel()
 		imageViewerTask = Task { @MainActor in
-			do {
-				let (data, response) = try await Downloader.shared.download(url)
-				guard let data, !data.isEmpty, let response, response.statusIsOK else {
-					throw ImageViewerError.downloadFailed
-				}
+				do {
+					guard let data = await ImageDownloader.shared.imageData(for: url.absoluteString), !data.isEmpty else {
+						throw ImageViewerError.downloadFailed
+					}
 
-				view.layoutSubtreeIfNeeded()
-				let maxPixelSize = overlay.preferredDownsampleMaxPixelSize()
-				let image = await Task.detached(priority: .userInitiated) {
+					view.layoutSubtreeIfNeeded()
+					let maxPixelSize = overlay.preferredDownsampleMaxPixelSize()
+					let image = await Task.detached(priority: .userInitiated) {
 					ImageViewerImageDecoder.downsampledImage(from: data, maxPixelSize: maxPixelSize)
 				}.value
 

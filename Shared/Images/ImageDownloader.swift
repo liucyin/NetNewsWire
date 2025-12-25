@@ -18,18 +18,37 @@ extension Notification.Name {
 @MainActor final class ImageDownloader {
 	public static let shared = ImageDownloader()
 
+	typealias DownloadFunction = @MainActor (URL) async throws -> (Data?, URLResponse?)
+
 	nonisolated static private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "ImageDownloader")
 
 	nonisolated private let diskCache: BinaryDiskCache
 	private let queue: DispatchQueue
 	private var imageCache = [String: Data]() // url: image
-	private var urlsInProgress = Set<String>()
 	private var badURLs = Set<String>() // That return a 404 or whatever. Just skip them in the future.
 
-	init() {
+	private let download: DownloadFunction
+
+	private var fetchTasks = [String: Task<Void, Never>]()
+	private var waiters = [String: [CheckedContinuation<Data?, Never>]]()
+
+	private let maxConcurrentDownloads: Int
+	private var activeDownloadCount = 0
+	private var downloadSlotWaiters = [CheckedContinuation<Void, Never>]()
+
+	convenience init() {
 		let folder = AppConfig.cacheSubfolder(named: "Images")
-		self.diskCache = BinaryDiskCache(folder: folder.path)
-		self.queue = DispatchQueue(label: "ImageDownloader serial queue - \(folder.path)")
+		self.init(cacheFolder: folder)
+	}
+
+	init(cacheFolder: URL, maxConcurrentDownloads: Int = 4, download: @escaping DownloadFunction = { url in
+		try await Downloader.shared.download(url)
+	}) {
+		try? FileManager.default.createDirectory(at: cacheFolder, withIntermediateDirectories: true)
+		self.diskCache = BinaryDiskCache(folder: cacheFolder.path)
+		self.queue = DispatchQueue(label: "ImageDownloader serial queue - \(cacheFolder.path)")
+		self.maxConcurrentDownloads = max(1, maxConcurrentDownloads)
+		self.download = download
 	}
 
 	@discardableResult
@@ -39,42 +58,91 @@ extension Notification.Name {
 			return data
 		}
 
-		Task { @MainActor in
-			await findImage(url)
-		}
+		startFetchIfNeeded(url)
 
 		return nil
+	}
+
+	func imageData(for url: String) async -> Data? {
+		assert(Thread.isMainThread)
+
+		if let data = imageCache[url] {
+			return data
+		}
+		guard !badURLs.contains(url) else {
+			return nil
+		}
+
+		return await withCheckedContinuation { continuation in
+			waiters[url, default: []].append(continuation)
+			startFetchIfNeeded(url)
+		}
+	}
+
+	func cancelFetch(for url: String) {
+		fetchTasks[url]?.cancel()
 	}
 }
 
 private extension ImageDownloader {
 
-	func cacheImage(_ url: String, _ image: Data) {
-		assert(Thread.isMainThread)
-		imageCache[url] = image
-		postImageDidBecomeAvailableNotification(url)
-	}
-
-	func findImage(_ url: String) async {
-		guard !urlsInProgress.contains(url) && !badURLs.contains(url) else {
-			return
-		}
-		urlsInProgress.insert(url)
-
-		if let image = await readFromDisk(url: url) {
-			cacheImage(url, image)
-			urlsInProgress.remove(url)
-			return
+		func cacheImage(_ url: String, _ image: Data) {
+			assert(Thread.isMainThread)
+			imageCache[url] = image
+			postImageDidBecomeAvailableNotification(url)
 		}
 
-		if let image = await downloadImage(url) {
-			cacheImage(url, image)
-			urlsInProgress.remove(url)
-		}
-	}
+		func startFetchIfNeeded(_ url: String) {
+			assert(Thread.isMainThread)
+			guard !url.isEmpty, !badURLs.contains(url), fetchTasks[url] == nil else {
+				return
+			}
 
-	func readFromDisk(url: String) async -> Data? {
-		await withCheckedContinuation { continuation in
+			let task = Task { @MainActor in
+				defer {
+					fetchTasks[url] = nil
+					resumeWaiters(for: url, data: nil)
+				}
+
+				let data = await fetchImage(url)
+				guard !Task.isCancelled else {
+					return
+				}
+
+				guard let data, !data.isEmpty else {
+					return
+				}
+
+				cacheImage(url, data)
+				resumeWaiters(for: url, data: data)
+			}
+
+			fetchTasks[url] = task
+		}
+
+		func resumeWaiters(for url: String, data: Data?) {
+			guard let continuations = waiters[url] else {
+				return
+			}
+			waiters[url] = nil
+			for continuation in continuations {
+				continuation.resume(returning: data)
+			}
+		}
+
+		func fetchImage(_ url: String) async -> Data? {
+			guard !Task.isCancelled else { return nil }
+
+			if let image = await readFromDisk(url: url) {
+				return image
+			}
+
+			guard !Task.isCancelled else { return nil }
+			return await downloadImageWithLimit(url)
+		}
+
+		func readFromDisk(url: String) async -> Data? {
+			await withCheckedContinuation { continuation in
 			readFromDisk(url) { data in
 				continuation.resume(returning: data)
 			}
@@ -93,21 +161,47 @@ private extension ImageDownloader {
 			DispatchQueue.main.async {
 				completion(nil)
 			}
-		}
-	}
-
-	func downloadImage(_ url: String) async -> Data? {
-		guard let imageURL = URL(string: url) else {
-			return nil
-		}
-
-		do {
-			let (data, response) = try await Downloader.shared.download(imageURL)
-
-			if let data, !data.isEmpty, let response, response.statusIsOK {
-				saveToDisk(url, data)
-				return data
 			}
+		}
+
+		func downloadImageWithLimit(_ url: String) async -> Data? {
+			await acquireDownloadSlot()
+			defer { releaseDownloadSlot() }
+			guard !Task.isCancelled else { return nil }
+			return await downloadImage(url)
+		}
+
+		func acquireDownloadSlot() async {
+			if activeDownloadCount < maxConcurrentDownloads {
+				activeDownloadCount += 1
+				return
+			}
+
+			await withCheckedContinuation { continuation in
+				downloadSlotWaiters.append(continuation)
+			}
+			activeDownloadCount += 1
+		}
+
+		func releaseDownloadSlot() {
+			activeDownloadCount = max(0, activeDownloadCount - 1)
+			guard !downloadSlotWaiters.isEmpty else { return }
+			let continuation = downloadSlotWaiters.removeFirst()
+			continuation.resume()
+		}
+
+		func downloadImage(_ url: String) async -> Data? {
+			guard let imageURL = URL(string: url) else {
+				return nil
+			}
+
+			do {
+				let (data, response) = try await download(imageURL)
+
+				if let data, !data.isEmpty, let response, response.statusIsOK {
+					saveToDisk(url, data)
+					return data
+				}
 
 			if let response = response as? HTTPURLResponse, response.statusCode >= HTTPResponseCode.badRequest && response.statusCode <= HTTPResponseCode.notAcceptable {
 				badURLs.insert(url)
