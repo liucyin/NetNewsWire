@@ -8,6 +8,7 @@
 
 import AppKit
 @preconcurrency import WebKit
+import ImageIO
 import RSCore
 import RSWeb
 import Articles
@@ -362,8 +363,10 @@ private extension DetailWebViewController {
 					throw ImageViewerError.downloadFailed
 				}
 
+				view.layoutSubtreeIfNeeded()
+				let maxPixelSize = overlay.preferredDownsampleMaxPixelSize()
 				let image = await Task.detached(priority: .userInitiated) {
-					NSImage(data: data)
+					ImageViewerImageDecoder.downsampledImage(from: data, maxPixelSize: maxPixelSize)
 				}.value
 
 				guard !Task.isCancelled, let image else {
@@ -976,6 +979,32 @@ private enum ImageViewerError: Error {
 	case decodeFailed
 }
 
+private enum ImageViewerImageDecoder {
+	static func downsampledImage(from data: Data, maxPixelSize: Int) -> NSImage? {
+		guard maxPixelSize > 0 else {
+			return NSImage(data: data)
+		}
+
+		guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil) else {
+			return NSImage(data: data)
+		}
+
+		let options: [CFString: Any] = [
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceShouldCacheImmediately: true,
+			kCGImageSourceThumbnailMaxPixelSize: NSNumber(value: maxPixelSize)
+		]
+
+		guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+			return NSImage(data: data)
+		}
+
+		let size = NSSize(width: cgImage.width, height: cgImage.height)
+		return NSImage(cgImage: cgImage, size: size)
+	}
+}
+
 @MainActor private final class ImageViewerOverlayView: NSView {
 	var onClose: (() -> Void)?
 
@@ -983,12 +1012,28 @@ private enum ImageViewerError: Error {
 	private let closeButton = NSButton()
 	private let progressIndicator = NSProgressIndicator()
 
+	private let baseBackgroundAlpha: CGFloat = 0.85
+	private let maxZoomScale: CGFloat = 4
+
+	private var zoomScale: CGFloat = 1
+	private var panOffset = CGPoint.zero
+
+	private enum DragMode {
+		case none
+		case dismiss
+		case pan
+	}
+
+	private var dragMode: DragMode = .none
+	private var dragStartPoint = CGPoint.zero
+	private var dragStartOffset = CGPoint.zero
+
 	override init(frame frameRect: NSRect) {
 		super.init(frame: frameRect)
 		wantsLayer = true
-		layer?.backgroundColor = NSColor.black.withAlphaComponent(0.85).cgColor
+		layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
 
-		imageView.translatesAutoresizingMaskIntoConstraints = false
+		imageView.translatesAutoresizingMaskIntoConstraints = true
 		imageView.imageScaling = .scaleProportionallyUpOrDown
 		imageView.imageAlignment = .alignCenter
 		addSubview(imageView)
@@ -1010,13 +1055,6 @@ private enum ImageViewerError: Error {
 			closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 16),
 			closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
 
-			imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-			imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-			imageView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
-			imageView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
-			imageView.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 24),
-			imageView.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -24),
-
 			progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
 			progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
 		])
@@ -1028,22 +1066,220 @@ private enum ImageViewerError: Error {
 		fatalError("init(coder:) has not been implemented")
 	}
 
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		if closeButton.frame.contains(point) {
+			return closeButton
+		}
+		return self
+	}
+
+	override func layout() {
+		super.layout()
+		updateImageFrame()
+	}
+
 	func showLoading() {
+		resetInteractionState()
 		imageView.image = nil
 		progressIndicator.startAnimation(nil)
+		updateImageFrame()
 	}
 
 	func showImage(_ image: NSImage) {
+		resetInteractionState()
 		progressIndicator.stopAnimation(nil)
 		imageView.image = image
+		updateImageFrame()
 	}
 
 	func reset() {
 		progressIndicator.stopAnimation(nil)
 		imageView.image = nil
+		resetInteractionState()
+		updateImageFrame()
 	}
 
 	@objc private func closeButtonPressed(_ sender: Any?) {
 		onClose?()
+	}
+
+	func preferredDownsampleMaxPixelSize() -> Int {
+		let points = max(bounds.width, bounds.height)
+		let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+		let target = Int((points * scale * 2).rounded(.up))
+		return max(512, min(target, 8192))
+	}
+
+	override func scrollWheel(with event: NSEvent) {
+		guard imageView.image != nil else { return }
+		guard event.momentumPhase == [] else { return }
+
+		let deltaY = event.scrollingDeltaY
+		guard deltaY != 0 else { return }
+
+		let factor: CGFloat
+		if event.hasPreciseScrollingDeltas {
+			factor = CGFloat(pow(1.0015, Double(deltaY)))
+		} else {
+			factor = deltaY > 0 ? 1.1 : 0.9
+		}
+
+		setZoomScale(zoomScale * factor)
+	}
+
+	override func mouseDown(with event: NSEvent) {
+		guard imageView.image != nil else { return }
+		dragStartPoint = convert(event.locationInWindow, from: nil)
+		dragStartOffset = panOffset
+		dragMode = zoomScale > 1.01 ? .pan : .dismiss
+	}
+
+	override func mouseDragged(with event: NSEvent) {
+		guard imageView.image != nil else { return }
+		let point = convert(event.locationInWindow, from: nil)
+		let delta = CGPoint(x: point.x - dragStartPoint.x, y: point.y - dragStartPoint.y)
+
+		switch dragMode {
+		case .pan:
+			panOffset = clampedPanOffset(CGPoint(x: dragStartOffset.x + delta.x, y: dragStartOffset.y + delta.y))
+			updateImageFrame()
+		case .dismiss:
+			panOffset = delta
+			updateDismissBackground(for: delta)
+			updateImageFrame()
+		case .none:
+			break
+		}
+	}
+
+	override func mouseUp(with event: NSEvent) {
+		guard imageView.image != nil else { return }
+		defer { dragMode = .none }
+
+		switch dragMode {
+		case .dismiss:
+			let threshold = max(120, min(bounds.width, bounds.height) * 0.25)
+			let distance = hypot(panOffset.x, panOffset.y)
+			if distance >= threshold {
+				onClose?()
+				return
+			}
+			animateDismissCancel()
+		case .pan:
+			panOffset = clampedPanOffset(panOffset)
+			updateImageFrame()
+		case .none:
+			break
+		}
+	}
+
+	private func setZoomScale(_ scale: CGFloat) {
+		let clamped = max(1, min(scale, maxZoomScale))
+		if abs(clamped - 1) < 0.02 {
+			zoomScale = 1
+			panOffset = .zero
+			layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
+		} else {
+			zoomScale = clamped
+			panOffset = clampedPanOffset(panOffset)
+		}
+
+		updateImageFrame()
+	}
+
+	private func resetInteractionState() {
+		zoomScale = 1
+		panOffset = .zero
+		dragMode = .none
+		dragStartPoint = .zero
+		dragStartOffset = .zero
+		layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
+	}
+
+	private func updateDismissBackground(for offset: CGPoint) {
+		let threshold = max(120, min(bounds.width, bounds.height) * 0.25)
+		let distance = hypot(offset.x, offset.y)
+		let progress = max(0, min(1, distance / threshold))
+		let alpha = baseBackgroundAlpha * (1 - progress * 0.7)
+		layer?.backgroundColor = NSColor.black.withAlphaComponent(alpha).cgColor
+	}
+
+	private func animateDismissCancel() {
+		guard let image = imageView.image else { return }
+		let baseFrame = baseImageFrame(for: image)
+
+		NSAnimationContext.runAnimationGroup { context in
+			context.duration = 0.2
+			context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+			imageView.animator().frame = baseFrame
+		} completionHandler: { [weak self] in
+			Task { @MainActor in
+				guard let self else { return }
+				self.panOffset = .zero
+				self.layer?.backgroundColor = NSColor.black.withAlphaComponent(self.baseBackgroundAlpha).cgColor
+				self.updateImageFrame()
+			}
+		}
+	}
+
+	private func updateImageFrame() {
+		guard let image = imageView.image else {
+			imageView.frame = .zero
+			return
+		}
+
+		let baseFrame = baseImageFrame(for: image)
+		if zoomScale > 1.0, dragMode != .dismiss {
+			panOffset = clampedPanOffset(panOffset, baseFrame: baseFrame)
+		}
+
+		let size = NSSize(width: baseFrame.width * zoomScale, height: baseFrame.height * zoomScale)
+		let origin = NSPoint(
+			x: baseFrame.midX - size.width / 2 + panOffset.x,
+			y: baseFrame.midY - size.height / 2 + panOffset.y
+		)
+		imageView.frame = NSRect(origin: origin, size: size)
+	}
+
+	private func baseImageFrame(for image: NSImage) -> NSRect {
+		let inset: CGFloat = 24
+		let availableBounds = bounds.insetBy(dx: inset, dy: inset)
+		guard availableBounds.width > 0, availableBounds.height > 0 else {
+			return .zero
+		}
+
+		let imageSize = image.size
+		guard imageSize.width > 0, imageSize.height > 0 else {
+			return .zero
+		}
+
+		let scale = min(availableBounds.width / imageSize.width, availableBounds.height / imageSize.height, 1)
+		let size = NSSize(width: imageSize.width * scale, height: imageSize.height * scale)
+		let origin = NSPoint(
+			x: availableBounds.midX - size.width / 2,
+			y: availableBounds.midY - size.height / 2
+		)
+		return NSRect(origin: origin, size: size)
+	}
+
+	private func clampedPanOffset(_ offset: CGPoint, baseFrame: NSRect? = nil) -> CGPoint {
+		guard zoomScale > 1.0, dragMode != .dismiss else {
+			return .zero
+		}
+
+		guard let image = imageView.image else {
+			return .zero
+		}
+
+		let baseFrame = baseFrame ?? baseImageFrame(for: image)
+		let scaledWidth = baseFrame.width * zoomScale
+		let scaledHeight = baseFrame.height * zoomScale
+
+		let maxOffsetX = max(0, (scaledWidth - bounds.width) / 2)
+		let maxOffsetY = max(0, (scaledHeight - bounds.height) / 2)
+
+		let x = max(-maxOffsetX, min(maxOffsetX, offset.x))
+		let y = max(-maxOffsetY, min(maxOffsetY, offset.y))
+		return CGPoint(x: x, y: y)
 	}
 }

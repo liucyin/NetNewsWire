@@ -114,11 +114,12 @@ Phase 5：Feature 图片查看器（骨架 + 打通链路）（里程碑：点�
 - 验证：打开/关闭动画顺滑且不闪白；点击不同图片均可打开；失败时降级为“在浏览器打开图片 URL”。
 
 Phase 6：Feature 图片查看器交互与性能（里程碑：缩放/拖拽/关闭行为完整且低资源）
-- 缩放：以 `NSScrollView` + magnification 为主，补充滚轮缩放（scrollWheel）映射到 `magnification`（注意 macOS 15.6 行为与触控板手势一致性）。
-- 拖拽：未缩放时拖拽任意方向触发交互式 dismiss；缩放后拖拽转为平移（更新 content offset）。
+- 缩放：overlay 捕获 `scrollWheel`，做连续 zoom（1x~4x，接近 1x 自动回弹）并避免与下层滚动冲突。
+- 拖拽：1x 时拖拽任意方向触发交互式 dismiss；>1x 时拖拽转为平移（clamp 到可视范围）。
 - 渲染优化：大图加载先做屏幕尺寸 downsample（避免直接解码原图导致内存峰值）；必要时再评估 `CATiledLayer`/分块渲染作为二期优化。
 - 动画：统一用 layer-backed + `NSAnimationContext`/`CATransaction`，避免主线程同步解码/布局抖动。
 - 验证：大图（>10MB）情况下仍能平滑缩放/拖拽；打开/关闭无明显掉帧；Instruments 观察 CPU/内存峰值在可接受范围。
+- 验证结果：NNW-060 受限验收（2025-12-25）— 已验证 `XcodebuildMcp` macOS build；需手工验证滚轮缩放/拖拽关闭/平移与大图（>10MB）性能、Instruments（CPU/内存/泄漏）。
 
 Phase 7：Optimize 缩略图/图片加载速度（里程碑：可感知更快且不放大资源占用）
 - 现状梳理：Timeline 缩略图走 `ImageDownloader`（内存 + BinaryDiskCache）；确定“慢”的主要来源（网络并发受限/重复下载/解码阻塞/磁盘 IO）。
