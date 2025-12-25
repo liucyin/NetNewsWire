@@ -76,6 +76,9 @@ final class DetailWebViewController: NSViewController {
 	private var waitingForFirstReload = false
 	private let keyboardDelegate = DetailKeyboardDelegate()
 	private var windowScrollY: CGFloat?
+	private var imageViewerOverlay: ImageViewerOverlayView?
+	private var imageViewerKeyMonitor: Any?
+	private var imageViewerTask: Task<Void, Never>?
 
 	private var isShowingExtractedArticle: Bool {
 		switch state {
@@ -91,6 +94,7 @@ final class DetailWebViewController: NSViewController {
 		static let mouseDidExit = "mouseDidExit"
 		static let windowDidScroll = "windowDidScroll"
         static let requestTranslation = "requestTranslation"
+		static let openImageViewer = "openImageViewer"
 	}
 
 	override func loadView() {
@@ -101,6 +105,7 @@ final class DetailWebViewController: NSViewController {
 		configuration.userContentController.add(self, name: MessageName.mouseDidEnter)
 		configuration.userContentController.add(self, name: MessageName.mouseDidExit)
         configuration.userContentController.add(self, name: MessageName.requestTranslation)
+		configuration.userContentController.add(self, name: MessageName.openImageViewer)
 
 		webView = DetailWebView(frame: NSRect.zero, configuration: configuration)
 		webView.uiDelegate = self
@@ -201,6 +206,10 @@ extension DetailWebViewController: WKScriptMessageHandler {
             if let body = message.body as? [String: String], let id = body["id"], let text = body["text"] {
                 delegate?.requestTranslation(id: id, text: text)
             }
+		} else if message.name == MessageName.openImageViewer {
+			if let body = message.body as? [String: Any], let src = body["src"] as? String {
+				openImageViewer(src: src)
+			}
 		}
 	}
 }
@@ -295,6 +304,7 @@ private extension DetailWebViewController {
 	}
 
 	func reloadHTML() {
+		closeImageViewer(animated: false)
 		delegate?.mouseDidExit(self)
 
 		let theme = ArticleThemesManager.shared.currentTheme
@@ -325,6 +335,121 @@ private extension DetailWebViewController {
 		var html = try! MacroProcessor.renderedText(withTemplate: ArticleRenderer.page.html, substitutions: substitutions)
 		html = ArticleRenderingSpecialCases.filterHTMLIfNeeded(baseURL: rendering.baseURL, html: html)
 		webView.loadHTMLString(html, baseURL: URL(string: rendering.baseURL))
+	}
+
+	func openImageViewer(src: String) {
+		guard let url = URL(string: src), url.isHTTPOrHTTPSURL() else {
+			return
+		}
+
+		let overlay = ensureImageViewerOverlay()
+		overlay.showLoading()
+
+		overlay.alphaValue = 0
+		overlay.isHidden = false
+		NSAnimationContext.runAnimationGroup { context in
+			context.duration = 0.15
+			overlay.animator().alphaValue = 1
+		}
+
+		installImageViewerKeyMonitor()
+
+		imageViewerTask?.cancel()
+		imageViewerTask = Task { @MainActor in
+			do {
+				let (data, response) = try await Downloader.shared.download(url)
+				guard let data, !data.isEmpty, let response, response.statusIsOK else {
+					throw ImageViewerError.downloadFailed
+				}
+
+				let image = await Task.detached(priority: .userInitiated) {
+					NSImage(data: data)
+				}.value
+
+				guard !Task.isCancelled, let image else {
+					throw ImageViewerError.decodeFailed
+				}
+
+				overlay.showImage(image)
+			} catch {
+				guard !Task.isCancelled else { return }
+				closeImageViewer(animated: true)
+				openInBrowser(url, flags: [])
+			}
+		}
+	}
+
+	func closeImageViewer(animated: Bool) {
+		imageViewerTask?.cancel()
+		imageViewerTask = nil
+
+		removeImageViewerKeyMonitor()
+
+		guard let overlay = imageViewerOverlay, !overlay.isHidden else {
+			return
+		}
+
+		let finish: @MainActor () -> Void = {
+			overlay.reset()
+			overlay.isHidden = true
+			overlay.alphaValue = 1
+		}
+
+		if animated {
+			NSAnimationContext.runAnimationGroup { context in
+				context.duration = 0.15
+				overlay.animator().alphaValue = 0
+			} completionHandler: {
+				Task { @MainActor in
+					finish()
+				}
+			}
+		} else {
+			finish()
+		}
+	}
+
+	private func ensureImageViewerOverlay() -> ImageViewerOverlayView {
+		if let overlay = imageViewerOverlay {
+			return overlay
+		}
+
+		let overlay = ImageViewerOverlayView()
+		overlay.isHidden = true
+		overlay.onClose = { [weak self] in
+			self?.closeImageViewer(animated: true)
+		}
+
+		view.addSubview(overlay)
+		overlay.translatesAutoresizingMaskIntoConstraints = false
+		NSLayoutConstraint.activate([
+			overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			overlay.topAnchor.constraint(equalTo: view.topAnchor),
+			overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+		])
+
+		imageViewerOverlay = overlay
+		return overlay
+	}
+
+	private func installImageViewerKeyMonitor() {
+		guard imageViewerKeyMonitor == nil else { return }
+		imageViewerKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+			guard let self else { return event }
+			if event.keyCode == 53 { // Esc
+				self.closeImageViewer(animated: true)
+				return nil
+			}
+			return event
+		}
+	}
+
+	private func removeImageViewerKeyMonitor() {
+		if let monitor = imageViewerKeyMonitor {
+			NSEvent.removeMonitor(monitor)
+			imageViewerKeyMonitor = nil
+		}
 	}
 
 	func fetchScrollInfo() async -> ScrollInfo? {
@@ -844,4 +969,81 @@ extension DetailWebViewController {
     }
     
     // (removed duplicate injectTranslation)
+}
+
+private enum ImageViewerError: Error {
+	case downloadFailed
+	case decodeFailed
+}
+
+@MainActor private final class ImageViewerOverlayView: NSView {
+	var onClose: (() -> Void)?
+
+	private let imageView = NSImageView()
+	private let closeButton = NSButton()
+	private let progressIndicator = NSProgressIndicator()
+
+	override init(frame frameRect: NSRect) {
+		super.init(frame: frameRect)
+		wantsLayer = true
+		layer?.backgroundColor = NSColor.black.withAlphaComponent(0.85).cgColor
+
+		imageView.translatesAutoresizingMaskIntoConstraints = false
+		imageView.imageScaling = .scaleProportionallyUpOrDown
+		imageView.imageAlignment = .alignCenter
+		addSubview(imageView)
+
+		progressIndicator.translatesAutoresizingMaskIntoConstraints = false
+		progressIndicator.style = .spinning
+		progressIndicator.isDisplayedWhenStopped = false
+		addSubview(progressIndicator)
+
+		closeButton.translatesAutoresizingMaskIntoConstraints = false
+		closeButton.title = "×"
+		closeButton.bezelStyle = .inline
+		closeButton.font = NSFont.systemFont(ofSize: 20, weight: .regular)
+		closeButton.target = self
+		closeButton.action = #selector(closeButtonPressed(_:))
+		addSubview(closeButton)
+
+		NSLayoutConstraint.activate([
+			closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+			closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+
+			imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+			imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+			imageView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
+			imageView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+			imageView.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 24),
+			imageView.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -24),
+
+			progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+			progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
+		])
+
+		reset()
+	}
+
+	required init?(coder: NSCoder) {
+		fatalError("init(coder:) has not been implemented")
+	}
+
+	func showLoading() {
+		imageView.image = nil
+		progressIndicator.startAnimation(nil)
+	}
+
+	func showImage(_ image: NSImage) {
+		progressIndicator.stopAnimation(nil)
+		imageView.image = image
+	}
+
+	func reset() {
+		progressIndicator.stopAnimation(nil)
+		imageView.image = nil
+	}
+
+	@objc private func closeButtonPressed(_ sender: Any?) {
+		onClose?()
+	}
 }
