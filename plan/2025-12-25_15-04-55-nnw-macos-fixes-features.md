@@ -40,6 +40,7 @@ Phase 1：建立基线与复现用例（里程碑：可稳定复现 6 个需求�
 - 操作步骤：进入该文章所在列表 → 观察该行缩略图（滚动触发复用后再观察一次）→ 打开文章确认正文存在 `<img>`（含 `srcset`）
 - 期望结果（成功路径）：Timeline 显示非空缩略图，且不会明显拖慢滚动
 - 期望结果（失败路径，用于定位缺陷）：若 Timeline 缩略图为空，记录该文章的 `contentHTML/summary/rawImageLink` 以及首个 `<img>` 的 `src/srcset`，用于对照 `Article.imageLink` 兜底逻辑
+- 验证结果：NNW-020 受限验收（2025-12-25）— 已验证 `XcodebuildMcp` macOS build；未能运行 XCTest（签名/测试 target 构建问题），UI 行为需按该样例手工复测
 
 ### 2) Hover Translation 重试（样例：失败后按 modifier 重新发起请求）
 - Feed：任意（建议同“缩略图样例”文章）

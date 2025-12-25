@@ -72,32 +72,144 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 
 	var imageLink: String? {
 		// Prefer link from imageURL, if one can be created, as these are repaired if required.
-		// Provide the raw link if URL creation fails.
-		if let link = imageURL?.absoluteString ?? rawImageLink {
-			return link
+		// If imageURL is invalid/empty, fall back to extracting the first usable image URL from the HTML.
+		if let imageURL,
+		   let scheme = imageURL.scheme?.lowercased(),
+		   scheme == "http" || scheme == "https" {
+			return imageURL.absoluteString
 		}
-		
+
 		return extractImageURL(from: contentHTML) ?? extractImageURL(from: summary)
 	}
 
+	private static let imageTagRegex = try! NSRegularExpression(pattern: "<img\\b[^>]*>", options: [.caseInsensitive])
+	private static let imageAttributeRegex = try! NSRegularExpression(pattern: "\\b(data-original|data-src|srcset|src|width|height)\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s>]+))", options: [.caseInsensitive])
+
 	private func extractImageURL(from html: String?) -> String? {
-		guard let html = html else { return nil }
-		
-		let pattern = "<img\\s+[^>]*src=\"([^\"]+)\""
-		guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+		guard let html, !html.isEmpty else {
 			return nil
 		}
-		
+
 		let range = NSRange(location: 0, length: html.utf16.count)
-		guard let match = regex.firstMatch(in: html, options: [], range: range) else {
+		var firstValidURL: String?
+
+		Self.imageTagRegex.enumerateMatches(in: html, options: [], range: range) { match, _, stop in
+			guard let match, let tagRange = Range(match.range, in: html) else {
+				return
+			}
+
+			let tagString = String(html[tagRange])
+			if let urlString = extractFirstImageURL(fromImageTag: tagString) {
+				firstValidURL = urlString
+				stop.pointee = true
+			}
+		}
+
+		return firstValidURL
+	}
+
+	private func extractFirstImageURL(fromImageTag tagString: String) -> String? {
+		let range = NSRange(location: 0, length: tagString.utf16.count)
+		var attributes = [String: String]()
+
+		Self.imageAttributeRegex.enumerateMatches(in: tagString, options: [], range: range) { match, _, _ in
+			guard let match else { return }
+			guard let nameRange = Range(match.range(at: 1), in: tagString) else { return }
+
+			let name = tagString[nameRange].lowercased()
+
+			let value: String?
+			if let valueRange = Range(match.range(at: 2), in: tagString) {
+				value = String(tagString[valueRange])
+			} else if let valueRange = Range(match.range(at: 3), in: tagString) {
+				value = String(tagString[valueRange])
+			} else if let valueRange = Range(match.range(at: 4), in: tagString) {
+				value = String(tagString[valueRange])
+			} else {
+				value = nil
+			}
+
+			if let value, !value.isEmpty {
+				attributes[name] = value
+			}
+		}
+
+		let width = parsePixelDimension(attributes["width"])
+		let height = parsePixelDimension(attributes["height"])
+
+		let candidates = [
+			attributes["data-original"],
+			attributes["data-src"],
+			firstURL(fromSrcset: attributes["srcset"]),
+			attributes["src"]
+		]
+
+		for candidate in candidates {
+			guard let candidate, let url = sanitizedHTTPImageURLString(candidate) else { continue }
+			if isLikelyTrackingPixel(urlString: url, width: width, height: height) {
+				continue
+			}
+			return url
+		}
+
+		return nil
+	}
+
+	private func firstURL(fromSrcset srcset: String?) -> String? {
+		guard let srcset else { return nil }
+		let firstEntry = srcset.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: true).first
+		guard let firstEntry else { return nil }
+		let firstURL = firstEntry.split(maxSplits: 1, omittingEmptySubsequences: true) { $0.isWhitespace }.first
+		return firstURL.map(String.init)
+	}
+
+	private func sanitizedHTTPImageURLString(_ urlString: String) -> String? {
+		let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard !trimmed.isEmpty else { return nil }
+
+		let decoded = trimmed.replacingOccurrences(of: "&amp;", with: "&")
+		if decoded.lowercased().hasPrefix("data:") {
 			return nil
 		}
-		
-		if let range = Range(match.range(at: 1), in: html) {
-			return String(html[range])
+
+		let normalized: String
+		if decoded.hasPrefix("//") {
+			normalized = "https:" + decoded
+		} else {
+			normalized = decoded
 		}
-		
+
+		guard let url = URL.encodeSpacesIfNeeded(normalized),
+			  let scheme = url.scheme?.lowercased(),
+			  scheme == "http" || scheme == "https" else {
+			return nil
+		}
+
+		return url.absoluteString
+	}
+
+	private func parsePixelDimension(_ rawValue: String?) -> Int? {
+		guard let rawValue else { return nil }
+		let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+		if let value = Int(trimmed) {
+			return value
+		}
+		if let range = trimmed.range(of: #"^\d+"#, options: .regularExpression) {
+			return Int(trimmed[range])
+		}
 		return nil
+	}
+
+	private func isLikelyTrackingPixel(urlString: String, width: Int?, height: Int?) -> Bool {
+		if let width, let height, width <= 2, height <= 2 {
+			return true
+		}
+		guard let url = URL(string: urlString) else { return false }
+		let filename = url.lastPathComponent.lowercased()
+		if filename == "pixel.gif" || filename == "pixel.png" {
+			return true
+		}
+		return false
 	}
 
 	var preferredLink: String? {
