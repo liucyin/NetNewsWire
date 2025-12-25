@@ -374,67 +374,59 @@ final class AIPreferencesViewController: NSViewController {
         ])
     }
     
-	    private func setupTranslationUI(in view: NSView) {
-	        let scroll = NSScrollView()
-	        scroll.documentView = translationPromptField
-	        scroll.hasVerticalScroller = true
-	        scroll.borderType = .bezelBorder
-	        
-        let providerLabel = NSTextField(labelWithString: "Provider:")
-        let providerStack = NSStackView(views: [providerLabel, translationProviderPopup])
-        providerStack.orientation = .horizontal
-        providerStack.spacing = 8
-        providerStack.alignment = .firstBaseline
-
-        let languageLabel = NSTextField(labelWithString: "Target Language:")
-        let languageStack = NSStackView(views: [languageLabel, outputLanguagePopup])
-        languageStack.orientation = .horizontal
-        languageStack.spacing = 8
-        languageStack.alignment = .firstBaseline
-        
-        // Align labels - Removed potential crashing constraint
-        // providerLabel.widthAnchor.constraint(equalTo: languageLabel.widthAnchor).isActive = true
-        
-        let topStack = NSStackView(views: [providerStack, languageStack])
-        topStack.orientation = .vertical
-        topStack.alignment = .leading
-        topStack.spacing = 10
-        topStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let hoverOptionsStack = NSStackView(views: [
-            NSTextField(labelWithString: "Hover Modifier:"),
-            hoverModifierPopup
+		    private func setupTranslationUI(in view: NSView) {
+		        let scroll = NSScrollView()
+		        scroll.documentView = translationPromptField
+		        scroll.hasVerticalScroller = true
+		        scroll.borderType = .bezelBorder
+		        
+        let topGrid = NSGridView(views: [
+            [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
+            [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup]
         ])
-        hoverOptionsStack.orientation = .horizontal
-        hoverOptionsStack.spacing = 8
-        
-        autoTranslateCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
-        autoTranslateTitlesCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
-        hoverTranslationCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
+        topGrid.rowSpacing = 12
+        topGrid.columnSpacing = 12
+        topGrid.column(at: 0).xPlacement = .trailing
+
+        NSLayoutConstraint.activate([
+            translationProviderPopup.widthAnchor.constraint(equalToConstant: 280),
+            outputLanguagePopup.widthAnchor.constraint(equalToConstant: 280),
+            hoverModifierPopup.widthAnchor.constraint(equalToConstant: 140)
+        ])
+
+        let hoverOptionsGrid = NSGridView(views: [
+            [NSTextField(labelWithString: "Hover Modifier:"), hoverModifierPopup]
+        ])
+        hoverOptionsGrid.columnSpacing = 12
+        hoverOptionsGrid.column(at: 0).xPlacement = .trailing
+	        
+	        autoTranslateCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
+	        autoTranslateTitlesCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
+	        hoverTranslationCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
 
         // Add checkboxes to a separate stack to avoid grid compression
-        let optionsStack = NSStackView(views: [
-            autoTranslateCheckbox,
-            autoTranslateTitlesCheckbox,
-            hoverTranslationCheckbox,
-            hoverOptionsStack
-        ])
-        optionsStack.orientation = .vertical
-        optionsStack.alignment = .leading
-        optionsStack.spacing = 16
-        optionsStack.setHuggingPriority(.defaultLow, for: .horizontal)
+	        let optionsStack = NSStackView(views: [
+	            autoTranslateCheckbox,
+	            autoTranslateTitlesCheckbox,
+	            hoverTranslationCheckbox,
+	            hoverOptionsGrid
+	        ])
+	        optionsStack.orientation = .vertical
+	        optionsStack.alignment = .leading
+	        optionsStack.spacing = 16
+	        optionsStack.setHuggingPriority(.defaultLow, for: .horizontal)
         optionsStack.translatesAutoresizingMaskIntoConstraints = false
 
         let resetBtn = NSButton(title: "Reset Prompt", target: self, action: #selector(resetTranslationPrompt))
         let clearCacheBtn = NSButton(title: "Clear Cache", target: self, action: #selector(clearTranslationCache))
         
-        let contentStack = NSStackView(views: [
-            topStack,
-            optionsStack,
-            NSTextField(labelWithString: "System Prompt (%TARGET_LANGUAGE% will be replaced):"),
-            scroll,
-            NSStackView(views: [resetBtn, clearCacheBtn])
-        ])
+	        let contentStack = NSStackView(views: [
+	            topGrid,
+	            optionsStack,
+	            NSTextField(labelWithString: "System Prompt (%TARGET_LANGUAGE% will be replaced):"),
+	            scroll,
+	            NSStackView(views: [resetBtn, clearCacheBtn])
+	        ])
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
         contentStack.spacing = 16

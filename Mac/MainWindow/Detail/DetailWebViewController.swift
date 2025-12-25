@@ -64,6 +64,20 @@ final class DetailWebViewController: NSViewController {
         webView.evaluateJavaScript("if (window.triggerHoverAction) { window.triggerHoverAction(); }")
     }
 
+    @MainActor func triggerHoverAction(at windowPoint: NSPoint) {
+        let viewPoint = webView.convert(windowPoint, from: nil)
+        let x = viewPoint.x
+        let y = webView.bounds.height - viewPoint.y
+        let js = """
+        if (window.triggerHoverActionAt) {
+            window.triggerHoverActionAt(\(x), \(y));
+        } else if (window.triggerHoverAction) {
+            window.triggerHoverAction();
+        }
+        """
+        webView.evaluateJavaScript(js)
+    }
+
 	private var webInspectorEnabled: Bool {
 		get {
 			return webView.configuration.preferences._developerExtrasEnabled
@@ -864,6 +878,26 @@ extension DetailWebViewController {
             });
             
             window.triggerHoverAction = function() {
+                if (lastHoveredNode) {
+                    triggerAction(lastHoveredNode);
+                }
+            };
+
+            window.triggerHoverActionAt = function(x, y) {
+                try {
+                    var target = document.elementFromPoint(x, y);
+                    while (target && target !== document.body) {
+                        var tag = (target.tagName || '').toLowerCase();
+                        if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
+                            lastHoveredNode = target;
+                            triggerAction(lastHoveredNode);
+                            return;
+                        }
+                        target = target.parentElement;
+                    }
+                } catch (e) {
+                    // Ignore and fall back to last hovered node
+                }
                 if (lastHoveredNode) {
                     triggerAction(lastHoveredNode);
                 }

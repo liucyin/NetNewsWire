@@ -71,11 +71,11 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 				self?.userDefaultsDidChange()
 			}
 		}
-        
-        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            Task { @MainActor in
-                guard let self = self else { return }
-                if !AISettings.shared.hoverTranslationEnabled { return }
+	        
+	        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+	            Task { @MainActor in
+	                guard let self = self else { return }
+	                if !AISettings.shared.hoverTranslationEnabled { return }
                 
                 let modifier = AISettings.shared.hoverModifier
                 let flags = event.modifierFlags
@@ -86,13 +86,18 @@ final class DetailViewController: NSViewController, WKUIDelegate {
                 case .option: matches = flags.contains(.option)
                 case .command: matches = flags.contains(.command)
                 }
-                
-                if matches {
-                    self.currentWebViewController.triggerHoverAction()
-                }
-            }
-            return event
-        }
+	                
+	                if matches {
+	                    guard let eventWindow = event.window,
+	                          let webViewWindow = self.currentWebViewController.webView.window,
+	                          eventWindow === webViewWindow else {
+	                        return
+	                    }
+	                    self.currentWebViewController.triggerHoverAction(at: event.locationInWindow)
+	                }
+	            }
+	            return event
+	        }
 	}
     
     deinit {
