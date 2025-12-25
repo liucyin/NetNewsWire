@@ -64,6 +64,7 @@ private extension MainWindowKeyboardHandler {
 		let candidates: [(actionString: String, keyDictionary: [String: Any]?)] = [
 			("aiSummary:", AppDefaults.shared.aiSummaryKeyboardShortcut),
 			("aiTranslate:", AppDefaults.shared.aiTranslateKeyboardShortcut),
+			("moveFocusToSearchField:", AppDefaults.shared.searchKeyboardShortcut),
 		]
 
 		for (actionString, keyDictionary) in candidates {

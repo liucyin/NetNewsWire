@@ -70,27 +70,45 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 		return externalURL?.absoluteString ?? rawExternalLink
 	}
 
+	private static let imageLinkCache = NSCache<NSString, NSString>()
+
 	var imageLink: String? {
+		if let cached = Article.imageLinkCache.object(forKey: articleID as NSString) {
+			return (cached as String).isEmpty ? nil : (cached as String)
+		}
+
 		// Prefer link from imageURL, if one can be created, as these are repaired if required.
 		// If imageURL is invalid/empty, fall back to extracting the first usable image URL from the HTML.
 		if let imageURL,
 		   let scheme = imageURL.scheme?.lowercased(),
 		   scheme == "http" || scheme == "https" {
-			return imageURL.absoluteString
+			let link = imageURL.absoluteString
+			Article.imageLinkCache.setObject(link as NSString, forKey: articleID as NSString)
+			return link
 		}
 
-		return extractImageURL(from: contentHTML) ?? extractImageURL(from: summary)
+		let baseURL = self.url
+		if let link = extractImageURL(from: contentHTML, baseURL: baseURL) ?? extractImageURL(from: summary, baseURL: baseURL) {
+			Article.imageLinkCache.setObject(link as NSString, forKey: articleID as NSString)
+			return link
+		}
+
+		Article.imageLinkCache.setObject("" as NSString, forKey: articleID as NSString)
+		return nil
 	}
 
 	private static let imageTagRegex = try! NSRegularExpression(pattern: "<img\\b[^>]*>", options: [.caseInsensitive])
 	private static let imageAttributeRegex = try! NSRegularExpression(pattern: "\\b(data-original|data-src|srcset|src|width|height)\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^\\s>]+))", options: [.caseInsensitive])
 
-	private func extractImageURL(from html: String?) -> String? {
+	private func extractImageURL(from html: String?, baseURL: URL?) -> String? {
 		guard let html, !html.isEmpty else {
 			return nil
 		}
 
-		let range = NSRange(location: 0, length: html.utf16.count)
+		// Optimization: Only search the first 4000 characters for a thumbnail.
+		// Searching the entire string can cause significant lag on the main thread for very large articles.
+		let searchLength = min(html.utf16.count, 4000)
+		let range = NSRange(location: 0, length: searchLength)
 		var firstValidURL: String?
 
 		Self.imageTagRegex.enumerateMatches(in: html, options: [], range: range) { match, _, stop in
@@ -99,7 +117,7 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 			}
 
 			let tagString = String(html[tagRange])
-			if let urlString = extractFirstImageURL(fromImageTag: tagString) {
+			if let urlString = extractFirstImageURL(fromImageTag: tagString, baseURL: baseURL) {
 				firstValidURL = urlString
 				stop.pointee = true
 			}
@@ -108,7 +126,7 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 		return firstValidURL
 	}
 
-	private func extractFirstImageURL(fromImageTag tagString: String) -> String? {
+	private func extractFirstImageURL(fromImageTag tagString: String, baseURL: URL?) -> String? {
 		let range = NSRange(location: 0, length: tagString.utf16.count)
 		var attributes = [String: String]()
 
@@ -145,7 +163,7 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 		]
 
 		for candidate in candidates {
-			guard let candidate, let url = sanitizedHTTPImageURLString(candidate) else { continue }
+			guard let candidate, let url = sanitizedHTTPImageURLString(candidate, baseURL: baseURL) else { continue }
 			if isLikelyTrackingPixel(urlString: url, width: width, height: height) {
 				continue
 			}
@@ -163,7 +181,7 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 		return firstURL.map(String.init)
 	}
 
-	private func sanitizedHTTPImageURLString(_ urlString: String) -> String? {
+	private func sanitizedHTTPImageURLString(_ urlString: String, baseURL: URL?) -> String? {
 		let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard !trimmed.isEmpty else { return nil }
 
@@ -178,8 +196,15 @@ private func accountAndArticlesDictionary(_ articles: Set<Article>) -> [String: 
 		} else {
 			normalized = decoded
 		}
+        
+        var availableURL: URL?
+        if let url = URL(string: normalized), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            availableURL = url
+        } else if let baseURL = baseURL, let relativeURL = URL(string: normalized, relativeTo: baseURL) {
+            availableURL = relativeURL
+        }
 
-		guard let url = URL.encodeSpacesIfNeeded(normalized),
+		guard let url = availableURL,
 			  let scheme = url.scheme?.lowercased(),
 			  scheme == "http" || scheme == "https" else {
 			return nil

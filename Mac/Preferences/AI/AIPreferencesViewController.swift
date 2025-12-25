@@ -159,19 +159,7 @@ final class AIPreferencesViewController: NSViewController {
 	        return tv
 	    }()
 
-	    private lazy var aiSummaryShortcutRecorder: KeyboardShortcutRecorderView = {
-	        let recorder = KeyboardShortcutRecorderView()
-	        recorder.shortcutDictionary = AppDefaults.shared.aiSummaryKeyboardShortcut
-	        recorder.validator = { [weak self] dictionary in
-	            guard let self else { return "Unable to validate shortcut." }
-	            return self.validateAIShortcutDictionary(dictionary, otherShortcutDictionary: AppDefaults.shared.aiTranslateKeyboardShortcut)
-	        }
-	        recorder.onChange = { dictionary in
-	            AppDefaults.shared.aiSummaryKeyboardShortcut = dictionary
-	            MainWindowKeyboardHandler.shared.reloadUserShortcuts()
-	        }
-	        return recorder
-	    }()
+	    // private lazy var aiSummaryShortcutRecorder: KeyboardShortcutRecorderView = ... (Removed)
 
 	    // MARK: - Translation Tab UI
 	    private lazy var translationView: NSView = {
@@ -214,19 +202,7 @@ final class AIPreferencesViewController: NSViewController {
 	        return tv
 	    }()
 
-	    private lazy var aiTranslateShortcutRecorder: KeyboardShortcutRecorderView = {
-	        let recorder = KeyboardShortcutRecorderView()
-	        recorder.shortcutDictionary = AppDefaults.shared.aiTranslateKeyboardShortcut
-	        recorder.validator = { [weak self] dictionary in
-	            guard let self else { return "Unable to validate shortcut." }
-	            return self.validateAIShortcutDictionary(dictionary, otherShortcutDictionary: AppDefaults.shared.aiSummaryKeyboardShortcut)
-	        }
-	        recorder.onChange = { dictionary in
-	            AppDefaults.shared.aiTranslateKeyboardShortcut = dictionary
-	            MainWindowKeyboardHandler.shared.reloadUserShortcuts()
-	        }
-	        return recorder
-	    }()
+	    // private lazy var aiTranslateShortcutRecorder: KeyboardShortcutRecorderView = ... (Removed)
 	    
 	    private lazy var autoTranslateCheckbox: NSButton = {
 	        let button = NSButton(checkboxWithTitle: "Auto translate non-target language articles", target: self, action: #selector(toggleAutoTranslate(_:)))
@@ -258,13 +234,14 @@ final class AIPreferencesViewController: NSViewController {
     override func loadView() {
         let view = NSView()
         view.wantsLayer = true
-        view.frame = NSRect(x: 0, y: 0, width: 620, height: 450)
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 450)
         self.view = view
     }
     
     override func viewDidLoad() {
         super.viewDidLoad()
         view.addSubview(tabView)
+        tabView.wantsLayer = true
         NSLayoutConstraint.activate([
             tabView.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
             tabView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
@@ -312,7 +289,7 @@ final class AIPreferencesViewController: NSViewController {
         grid.columnSpacing = 12
         grid.column(at: 0).xPlacement = .trailing
         
-        let formStack = NSStackView(views: [grid, NSBox(), testConnectionButton, connectionStatusLabel])
+        let formStack = NSStackView(views: [grid, testConnectionButton, connectionStatusLabel])
         formStack.orientation = .vertical
         formStack.alignment = .centerX
         formStack.spacing = 16
@@ -322,9 +299,10 @@ final class AIPreferencesViewController: NSViewController {
         NSLayoutConstraint.activate([
             formStack.centerXAnchor.constraint(equalTo: profileFormContainer.centerXAnchor),
             formStack.centerYAnchor.constraint(equalTo: profileFormContainer.centerYAnchor),
-            profileNameField.widthAnchor.constraint(equalToConstant: 200),
-            baseURLField.widthAnchor.constraint(equalToConstant: 200),
-            apiKeyField.widthAnchor.constraint(equalToConstant: 200)
+            profileNameField.widthAnchor.constraint(equalToConstant: 280),
+            baseURLField.widthAnchor.constraint(equalToConstant: 280),
+            apiKeyField.widthAnchor.constraint(equalToConstant: 280),
+            modelField.widthAnchor.constraint(equalToConstant: 280)
         ])
         
         profileFormContainer.addSubview(noProfileLabel)
@@ -365,7 +343,7 @@ final class AIPreferencesViewController: NSViewController {
 	        
 	        let topGrid = NSGridView(views: [
 	            [NSTextField(labelWithString: "Provider:"), summaryProviderPopup],
-	            [NSTextField(labelWithString: "Shortcut:"), aiSummaryShortcutRecorder],
+	            // [NSTextField(labelWithString: "Shortcut:"), aiSummaryShortcutRecorder], (Removed)
 	        ])
 	        topGrid.rowSpacing = 8
 	        topGrid.column(at: 0).xPlacement = .trailing
@@ -391,7 +369,7 @@ final class AIPreferencesViewController: NSViewController {
             contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
             scroll.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
-            summaryPromptField.widthAnchor.constraint(equalTo: scroll.widthAnchor),
+            // summaryPromptField.widthAnchor.constraint(equalTo: scroll.widthAnchor), // Handled by autoresizing mask
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
         ])
     }
@@ -402,30 +380,64 @@ final class AIPreferencesViewController: NSViewController {
 	        scroll.hasVerticalScroller = true
 	        scroll.borderType = .bezelBorder
 	        
-	        let topGrid = NSGridView(views: [
-	            [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
-	            [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup],
-	            [NSTextField(labelWithString: "Shortcut:"), aiTranslateShortcutRecorder],
-	            [NSGridCell.emptyContentView, autoTranslateCheckbox],
-	            [NSGridCell.emptyContentView, autoTranslateTitlesCheckbox],
-	            [NSGridCell.emptyContentView, hoverTranslationCheckbox],
-	            [NSTextField(labelWithString: "Hover Modifier:"), hoverModifierPopup]
-	        ])
-        topGrid.rowSpacing = 8
-        topGrid.column(at: 0).xPlacement = .trailing
+        let providerLabel = NSTextField(labelWithString: "Provider:")
+        let providerStack = NSStackView(views: [providerLabel, translationProviderPopup])
+        providerStack.orientation = .horizontal
+        providerStack.spacing = 8
+        providerStack.alignment = .firstBaseline
+
+        let languageLabel = NSTextField(labelWithString: "Target Language:")
+        let languageStack = NSStackView(views: [languageLabel, outputLanguagePopup])
+        languageStack.orientation = .horizontal
+        languageStack.spacing = 8
+        languageStack.alignment = .firstBaseline
         
+        // Align labels - Removed potential crashing constraint
+        // providerLabel.widthAnchor.constraint(equalTo: languageLabel.widthAnchor).isActive = true
+        
+        let topStack = NSStackView(views: [providerStack, languageStack])
+        topStack.orientation = .vertical
+        topStack.alignment = .leading
+        topStack.spacing = 10
+        topStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let hoverOptionsStack = NSStackView(views: [
+            NSTextField(labelWithString: "Hover Modifier:"),
+            hoverModifierPopup
+        ])
+        hoverOptionsStack.orientation = .horizontal
+        hoverOptionsStack.spacing = 8
+        
+        autoTranslateCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
+        autoTranslateTitlesCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
+        hoverTranslationCheckbox.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        // Add checkboxes to a separate stack to avoid grid compression
+        let optionsStack = NSStackView(views: [
+            autoTranslateCheckbox,
+            autoTranslateTitlesCheckbox,
+            hoverTranslationCheckbox,
+            hoverOptionsStack
+        ])
+        optionsStack.orientation = .vertical
+        optionsStack.alignment = .leading
+        optionsStack.spacing = 16
+        optionsStack.setHuggingPriority(.defaultLow, for: .horizontal)
+        optionsStack.translatesAutoresizingMaskIntoConstraints = false
+
         let resetBtn = NSButton(title: "Reset Prompt", target: self, action: #selector(resetTranslationPrompt))
         let clearCacheBtn = NSButton(title: "Clear Cache", target: self, action: #selector(clearTranslationCache))
         
         let contentStack = NSStackView(views: [
-            topGrid,
+            topStack,
+            optionsStack,
             NSTextField(labelWithString: "System Prompt (%TARGET_LANGUAGE% will be replaced):"),
             scroll,
             NSStackView(views: [resetBtn, clearCacheBtn])
         ])
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
-        contentStack.spacing = 8
+        contentStack.spacing = 16
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         
         view.addSubview(contentStack)
@@ -435,7 +447,7 @@ final class AIPreferencesViewController: NSViewController {
             contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             contentStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
             scroll.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
-            translationPromptField.widthAnchor.constraint(equalTo: scroll.widthAnchor),
+            // translationPromptField.widthAnchor.constraint(equalTo: scroll.widthAnchor), // Handled by autoresizing mask
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 150)
         ])
     }

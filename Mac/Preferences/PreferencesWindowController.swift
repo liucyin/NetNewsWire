@@ -25,12 +25,13 @@ private struct ToolbarItemIdentifier {
 	static let General = "General"
 	static let Accounts = "Accounts"
 	static let Advanced = "Advanced"
+    static let Keyboard = "Keyboard"
 	static let AI = "AI"
 }
 
 final class PreferencesWindowController : NSWindowController, NSToolbarDelegate {
 
-	private let windowWidth = CGFloat(512.0) // Width is constant for all views; only the height changes
+	private let windowWidth = CGFloat(600.0) // Width is constant for all views; only the height changes
 	private var viewControllers = [String: NSViewController]()
 	private let toolbarItemSpecs: [PreferencesToolbarItemSpec] = {
 		var specs = [PreferencesToolbarItemSpec]()
@@ -40,9 +41,12 @@ final class PreferencesWindowController : NSWindowController, NSToolbarDelegate 
 		specs += [PreferencesToolbarItemSpec(identifierRawValue: ToolbarItemIdentifier.Accounts,
 											 name: NSLocalizedString("Accounts", comment: "Preferences"),
 											 image: Assets.Images.preferencesToolbarAccounts)]
-		specs += [PreferencesToolbarItemSpec(identifierRawValue: ToolbarItemIdentifier.Advanced,
-											 name: NSLocalizedString("Advanced", comment: "Preferences"),
-											 image: Assets.Images.preferencesToolbarAdvanced)]
+// 		specs += [PreferencesToolbarItemSpec(identifierRawValue: ToolbarItemIdentifier.Advanced,
+// 											 name: NSLocalizedString("Advanced", comment: "Preferences"),
+// 											 image: Assets.Images.preferencesToolbarAdvanced)]
+        specs += [PreferencesToolbarItemSpec(identifierRawValue: ToolbarItemIdentifier.Keyboard,
+                                             name: NSLocalizedString("Shortcuts", comment: "Preferences"),
+                                             image: NSImage(systemSymbolName: "command", accessibilityDescription: "Shortcuts"))]
 		specs += [PreferencesToolbarItemSpec(identifierRawValue: ToolbarItemIdentifier.AI,
 											 name: NSLocalizedString("AI", comment: "Preferences"),
 											 image: NSImage(systemSymbolName: "sparkles", accessibilityDescription: "AI"))]
@@ -162,6 +166,12 @@ private extension PreferencesWindowController {
 			viewControllers[identifier] = viewController
 			return viewController
 		}
+
+        if identifier == ToolbarItemIdentifier.Keyboard {
+            let viewController = KeyboardPreferencesViewController()
+            viewControllers[identifier] = viewController
+            return viewController
+        }
 
 		let storyboard = NSStoryboard(name: NSStoryboard.Name("Preferences"), bundle: nil)
 		guard let viewController = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier(identifier)) as? NSViewController else {

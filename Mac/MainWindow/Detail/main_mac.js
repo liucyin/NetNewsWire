@@ -1,17 +1,17 @@
 function scrollDetection() {
-	window.onscroll = function(event) {
+	window.onscroll = function (event) {
 		window.webkit.messageHandlers.windowDidScroll.postMessage(window.scrollY);
 	}
 }
 
 function linkHover() {
-	window.onmouseover = function(event) {
+	window.onmouseover = function (event) {
 		var closestAnchor = event.target.closest('a')
 		if (closestAnchor) {
 			window.webkit.messageHandlers.mouseDidEnter.postMessage(closestAnchor.href);
 		}
 	}
-	window.onmouseout = function(event) {
+	window.onmouseout = function (event) {
 		var closestAnchor = event.target.closest('a')
 		if (closestAnchor) {
 			window.webkit.messageHandlers.mouseDidExit.postMessage(closestAnchor.href);
@@ -28,11 +28,11 @@ function imageViewer() {
 	// Hover: pointing-hand cursor for clickable images (article body only)
 	var images = container.querySelectorAll('img');
 	for (var i = 0; i < images.length; i++) {
-		images[i].style.cursor = 'pointer';
+		images[i].style.cursor = 'zoom-in';
 	}
 
 	// Click: route image tap to native viewer
-	container.addEventListener('click', function(event) {
+	container.addEventListener('click', function (event) {
 		var img = event.target.closest('img');
 		if (!img || !container.contains(img)) {
 			return;
@@ -46,7 +46,7 @@ function imageViewer() {
 		event.preventDefault();
 		event.stopPropagation();
 
-		window.webkit.messageHandlers.openImageViewer.postMessage({src: src});
+		window.webkit.messageHandlers.openImageViewer.postMessage({ src: src });
 	}, true);
 }
 

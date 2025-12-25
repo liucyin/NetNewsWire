@@ -395,6 +395,9 @@ private extension DetailWebViewController {
 			overlay.reset()
 			overlay.isHidden = true
 			overlay.alphaValue = 1
+            NSCursor.arrow.set()
+            // Ensure focus returns to the web view to restore hover events
+            self.view.window?.makeFirstResponder(self.view)
 		}
 
 		if animated {
@@ -407,31 +410,53 @@ private extension DetailWebViewController {
 				}
 			}
 		} else {
-			finish()
-		}
-	}
+            finish()
+        }
+    }
 
 	private func ensureImageViewerOverlay() -> ImageViewerOverlayView {
-		if let overlay = imageViewerOverlay {
-			return overlay
+        let useFullWindow = AppDefaults.shared.imageViewerFullWindow
+        
+        let targetView: NSView
+        if useFullWindow, let windowContentView = view.window?.contentView {
+            targetView = windowContentView
+        } else {
+            targetView = view
+        }
+
+		if imageViewerOverlay == nil {
+			let newOverlay = ImageViewerOverlayView()
+			newOverlay.translatesAutoresizingMaskIntoConstraints = false
+			newOverlay.isHidden = true
+			newOverlay.onClose = { [weak self] in
+				self?.closeImageViewer(animated: true)
+			}
+			self.imageViewerOverlay = newOverlay
 		}
+        
+        let overlay = imageViewerOverlay! // Must exist now
 
-		let overlay = ImageViewerOverlayView()
-		overlay.isHidden = true
-		overlay.onClose = { [weak self] in
-			self?.closeImageViewer(animated: true)
-		}
+        if overlay.superview != targetView {
+            overlay.removeFromSuperview() // Remove from old superview if reparenting
+            targetView.addSubview(overlay, positioned: .above, relativeTo: nil)
+            
+            var topConstraint: NSLayoutConstraint
+            let targetLayoutGuide = targetView.safeAreaLayoutGuide // Use safeAreaLayoutGuide for consistency
+            
+            if targetView == view.window?.contentView {
+                topConstraint = overlay.topAnchor.constraint(equalTo: targetLayoutGuide.topAnchor)
+            } else {
+                topConstraint = overlay.topAnchor.constraint(equalTo: targetView.topAnchor)
+            }
 
-		view.addSubview(overlay)
-		overlay.translatesAutoresizingMaskIntoConstraints = false
-		NSLayoutConstraint.activate([
-			overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			overlay.topAnchor.constraint(equalTo: view.topAnchor),
-			overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-		])
+            NSLayoutConstraint.activate([
+                overlay.leadingAnchor.constraint(equalTo: targetView.leadingAnchor),
+                overlay.trailingAnchor.constraint(equalTo: targetView.trailingAnchor),
+                topConstraint,
+                overlay.bottomAnchor.constraint(equalTo: targetView.bottomAnchor)
+            ])
+        }
 
-		imageViewerOverlay = overlay
 		return overlay
 	}
 
@@ -1007,12 +1032,12 @@ private enum ImageViewerImageDecoder {
 @MainActor private final class ImageViewerOverlayView: NSView {
 	var onClose: (() -> Void)?
 
-	private let imageView = NSImageView()
+	private let imageView = NonDraggableImageView()
 	private let closeButton = NSButton()
 	private let progressIndicator = NSProgressIndicator()
 
-	private let baseBackgroundAlpha: CGFloat = 0.85
-	private let maxZoomScale: CGFloat = 4
+	private let baseBackgroundAlpha: CGFloat = 1.0
+	private let maxZoomScale: CGFloat = 8
 
 	private var zoomScale: CGFloat = 1
 	private var panOffset = CGPoint.zero
@@ -1023,7 +1048,7 @@ private enum ImageViewerImageDecoder {
 		case pan
 	}
 
-	private var dragMode: DragMode = .none
+	private var dragMode = DragMode.none
 	private var dragStartPoint = CGPoint.zero
 	private var dragStartOffset = CGPoint.zero
 
@@ -1032,7 +1057,7 @@ private enum ImageViewerImageDecoder {
 		wantsLayer = true
 		layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
 
-		imageView.translatesAutoresizingMaskIntoConstraints = true
+		imageView.translatesAutoresizingMaskIntoConstraints = true // We use manual layout for zoom
 		imageView.imageScaling = .scaleProportionallyUpOrDown
 		imageView.imageAlignment = .alignCenter
 		addSubview(imageView)
@@ -1040,19 +1065,26 @@ private enum ImageViewerImageDecoder {
 		progressIndicator.translatesAutoresizingMaskIntoConstraints = false
 		progressIndicator.style = .spinning
 		progressIndicator.isDisplayedWhenStopped = false
+        progressIndicator.controlSize = .large
 		addSubview(progressIndicator)
 
+        imageView.unregisterDraggedTypes()
+
 		closeButton.translatesAutoresizingMaskIntoConstraints = false
-		closeButton.title = "×"
-		closeButton.bezelStyle = .inline
-		closeButton.font = NSFont.systemFont(ofSize: 20, weight: .regular)
+		closeButton.title = ""
+		closeButton.bezelStyle = .texturedRounded
+        closeButton.isBordered = false
+        closeButton.contentTintColor = .white
+        closeButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close")?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 28, weight: .semibold))
 		closeButton.target = self
 		closeButton.action = #selector(closeButtonPressed(_:))
 		addSubview(closeButton)
 
 		NSLayoutConstraint.activate([
-			closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 16),
-			closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+			closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 60),
+			closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
 
 			progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
 			progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
@@ -1066,7 +1098,12 @@ private enum ImageViewerImageDecoder {
 	}
 
 	override func hitTest(_ point: NSPoint) -> NSView? {
-		if closeButton.frame.contains(point) {
+        if isHidden || alphaValue == 0 { return nil }
+        
+        // point is in superview's coordinate system
+        let localPoint = convert(point, from: superview)
+        
+		if closeButton.frame.contains(localPoint) {
 			return closeButton
 		}
 		return self
@@ -1081,7 +1118,8 @@ private enum ImageViewerImageDecoder {
 		resetInteractionState()
 		imageView.image = nil
 		progressIndicator.startAnimation(nil)
-		updateImageFrame()
+        // Ensure reset state
+        imageView.frame = .zero
 	}
 
 	func showImage(_ image: NSImage) {
@@ -1106,7 +1144,7 @@ private enum ImageViewerImageDecoder {
 		let points = max(bounds.width, bounds.height)
 		let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
 		let target = Int((points * scale * 2).rounded(.up))
-		return max(512, min(target, 8192))
+		return max(1024, min(target, 8192))
 	}
 
 	override func scrollWheel(with event: NSEvent) {
@@ -1118,9 +1156,9 @@ private enum ImageViewerImageDecoder {
 
 		let factor: CGFloat
 		if event.hasPreciseScrollingDeltas {
-			factor = CGFloat(pow(1.0015, Double(deltaY)))
+			factor = CGFloat(pow(1.005, Double(deltaY))) // Increased from 1.0015
 		} else {
-			factor = deltaY > 0 ? 1.1 : 0.9
+			factor = deltaY > 0 ? 1.2 : 0.8 // Increased from 1.1/0.9
 		}
 
 		setZoomScale(zoomScale * factor)
@@ -1241,7 +1279,7 @@ private enum ImageViewerImageDecoder {
 	}
 
 	private func baseImageFrame(for image: NSImage) -> NSRect {
-		let inset: CGFloat = 24
+		let inset: CGFloat = 40 // More padding for X button
 		let availableBounds = bounds.insetBy(dx: inset, dy: inset)
 		guard availableBounds.width > 0, availableBounds.height > 0 else {
 			return .zero
@@ -1252,7 +1290,10 @@ private enum ImageViewerImageDecoder {
 			return .zero
 		}
 
-		let scale = min(availableBounds.width / imageSize.width, availableBounds.height / imageSize.height, 1)
+		// Calculate fitting scale so it FILLS the available space if user wants maximization
+        // But we preserve aspect ratio.
+        // The key change: REMOVED min(..., 1). Now it scales UP to fit.
+		let scale = min(availableBounds.width / imageSize.width, availableBounds.height / imageSize.height)
 		let size = NSSize(width: imageSize.width * scale, height: imageSize.height * scale)
 		let origin = NSPoint(
 			x: availableBounds.midX - size.width / 2,
@@ -1265,6 +1306,9 @@ private enum ImageViewerImageDecoder {
 		guard zoomScale > 1.0, dragMode != .dismiss else {
 			return .zero
 		}
+        
+        // When zoomed out or 1.0, allow elastic pan? No, just zero.
+        if zoomScale <= 1.0 { return .zero }
 
 		guard let image = imageView.image else {
 			return .zero
@@ -1281,4 +1325,14 @@ private enum ImageViewerImageDecoder {
 		let y = max(-maxOffsetY, min(maxOffsetY, offset.y))
 		return CGPoint(x: x, y: y)
 	}
+}
+
+private class NonDraggableImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        // No-op to prevent dragging
+    }
 }

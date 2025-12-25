@@ -57,8 +57,10 @@ final class AppDefaults: Sendable {
 			static let showTitleOnMainWindow = "KafasisTitleMode"
 			static let feedDoubleClickMarkAsRead = "GruberFeedDoubleClickMarkAsRead"
 		static let suppressSyncOnLaunch = "DevroeSuppressSyncOnLaunch"
-		static let webInspectorEnabled = "WebInspectorEnabled"
+	static let webInspectorEnabled = "WebInspectorEnabled"
 		static let webInspectorStartsAttached = "__WebInspectorPageGroupLevel1__.WebKit2InspectorStartsAttached"
+        static let imageViewerFullWindow = "imageViewerFullWindow"
+		static let searchKeyboardShortcut = "searchKeyboardShortcut"
 	}
 
 	private static let smallestFontSizeRawValue = FontSize.small.rawValue
@@ -365,6 +367,28 @@ final class AppDefaults: Sendable {
 			}
 			set {
 			UserDefaults.standard.set(newValue, forKey: Key.articleContentJavascriptEnabled)
+		}
+	}
+
+    var imageViewerFullWindow: Bool {
+        get {
+            return AppDefaults.bool(for: Key.imageViewerFullWindow)
+        }
+        set {
+            AppDefaults.setBool(for: Key.imageViewerFullWindow, newValue)
+        }
+    }
+
+	var searchKeyboardShortcut: [String: Any]? {
+		get {
+			UserDefaults.standard.dictionary(forKey: Key.searchKeyboardShortcut)
+		}
+		set {
+			if let newValue {
+				UserDefaults.standard.set(newValue, forKey: Key.searchKeyboardShortcut)
+			} else {
+				UserDefaults.standard.removeObject(forKey: Key.searchKeyboardShortcut)
+			}
 		}
 	}
 
