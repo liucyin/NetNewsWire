@@ -924,12 +924,6 @@ extension DetailWebViewController {
                 lastHoveredNode = null;
             });
 
-            document.addEventListener('keydown', function(e) {
-                if (e.\(keyProperty) && lastHoveredNode) {
-                    triggerAction(lastHoveredNode);
-                }
-            });
-            
             window.triggerHoverAction = function() {
                 if (lastHoveredNode) {
                     triggerAction(lastHoveredNode);

@@ -62,7 +62,8 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 	}
 
 	private var isArticleContentJavascriptEnabled = AppDefaults.shared.isArticleContentJavascriptEnabled
-    private var localEventMonitor: Any?
+	    private var localEventMonitor: Any?
+	    private var hoverModifierIsDown = false
 
 	override func viewDidLoad() {
 		currentWebViewController = regularWebViewController
@@ -71,26 +72,32 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 				self?.userDefaultsDidChange()
 			}
 		}
-	        
-	        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-	            Task { @MainActor in
-	                guard let self = self else { return }
-	                if !AISettings.shared.hoverTranslationEnabled { return }
+		        
+		        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+		            Task { @MainActor in
+		                guard let self = self else { return }
+		                if !AISettings.shared.hoverTranslationEnabled {
+		                    self.hoverModifierIsDown = false
+		                    return
+		                }
 	                
 	                let modifier = AISettings.shared.hoverModifier
 	                let flags = event.modifierFlags
-	                
-	                var matches = false
-	                switch modifier {
-	                case .control: matches = flags.contains(.control)
-	                case .option: matches = flags.contains(.option)
-	                case .command: matches = flags.contains(.command)
-	                }
-	                
-	                if matches {
-	                    guard let window = self.currentWebViewController.webView.window, window.isKeyWindow else { return }
+		                
+		                var matches = false
+		                switch modifier {
+		                case .control: matches = flags.contains(.control)
+		                case .option: matches = flags.contains(.option)
+		                case .command: matches = flags.contains(.command)
+		                }
+		                
+		                defer { self.hoverModifierIsDown = matches }
+		                guard matches, !self.hoverModifierIsDown else { return }
+		                
+		                if matches {
+		                    guard let window = self.currentWebViewController.webView.window, window.isKeyWindow else { return }
 
-	                    let windowPoint = window.mouseLocationOutsideOfEventStream
+		                    let windowPoint = window.mouseLocationOutsideOfEventStream
 	                    let viewPoint = self.currentWebViewController.webView.convert(windowPoint, from: nil)
 	                    guard self.currentWebViewController.webView.bounds.contains(viewPoint) else { return }
 
