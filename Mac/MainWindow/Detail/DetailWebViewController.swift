@@ -506,8 +506,8 @@ extension DetailWebViewController {
         webView.evaluateJavaScript(js)
     }
 
-    func injectTranslation(id: String, text: String) {
-        let html = markdownToHTML(text)
+	func injectTranslation(id: String, text: String) {
+		let html = markdownToHTML(text)
         
 		// Safely encode for JS injection
 		let jsonHtml = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
@@ -522,10 +522,13 @@ extension DetailWebViewController {
                 // Check if already has translation
                 var existing = node.nextElementSibling;
                 if (existing && existing.className == 'ai-translation') {
+                    existing.style.display = 'block';
                     existing.innerHTML = htmlContent;
+                    existing.setAttribute('data-ai-translation-state', 'success');
                 } else {
                     var div = document.createElement('div');
                     div.className = 'ai-translation';
+                    div.setAttribute('data-ai-translation-state', 'success');
                     div.style.color = 'var(--secondary-label-color)'; // Adaptive color
                     div.style.fontStyle = 'italic';
                     div.style.marginTop = '6px';
@@ -539,8 +542,8 @@ extension DetailWebViewController {
             }
         })();
         """
-        webView.evaluateJavaScript(js)
-    }
+		webView.evaluateJavaScript(js)
+	}
     
     private func markdownToHTML(_ text: String) -> String {
         // Simple regex-based markdown parser
@@ -648,14 +651,38 @@ extension DetailWebViewController {
                 }
                 var next = node.nextElementSibling;
                 if (next && next.classList.contains('ai-translation')) {
+                    var state = (next.getAttribute('data-ai-translation-state') || '').toLowerCase();
+                    if (state === 'loading') {
+                        return;
+                    }
+                    if (state === 'error') {
+                        var last = parseInt(node.getAttribute('data-ai-translation-last-request-at') || '0', 10);
+                        var now = Date.now();
+                        if (now - last < 500) {
+                            return;
+                        }
+                        node.setAttribute('data-ai-translation-last-request-at', String(now));
+                        var text = node.innerText.trim();
+                        if (text.length > 0) {
+                            window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+                        }
+                        return;
+                    }
+
                     if (next.style.display === 'none') {
-                       next.style.display = 'block';
+                        next.style.display = 'block';
                     } else {
-                       next.style.display = 'none';
+                        next.style.display = 'none';
                     }
                 } else {
                     var text = node.innerText.trim();
                     if (text.length > 0) {
+                         var last = parseInt(node.getAttribute('data-ai-translation-last-request-at') || '0', 10);
+                         var now = Date.now();
+                         if (now - last < 500) {
+                             return;
+                         }
+                         node.setAttribute('data-ai-translation-last-request-at', String(now));
                          window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
                     }
                 }
@@ -712,9 +739,12 @@ extension DetailWebViewController {
                 if (existing && existing.className == 'ai-translation') {
                     existing.style.display = 'block';
                     existing.innerHTML = loadingHTML;
+                    existing.style.borderLeft = '3px solid var(--accent-color)';
+                    existing.setAttribute('data-ai-translation-state', 'loading');
                 } else {
                     var div = document.createElement('div');
                     div.className = 'ai-translation';
+                    div.setAttribute('data-ai-translation-state', 'loading');
                     div.style.color = 'var(--secondary-label-color)';
                     div.style.marginTop = '6px';
                     div.style.marginBottom = '16px';
@@ -743,9 +773,12 @@ extension DetailWebViewController {
                 if (existing && existing.className == 'ai-translation') {
                     existing.style.display = 'block';
                     existing.innerHTML = errorHTML;
+                    existing.style.borderLeft = '3px solid red';
+                    existing.setAttribute('data-ai-translation-state', 'error');
                 } else {
                     var div = document.createElement('div');
                     div.className = 'ai-translation';
+                    div.setAttribute('data-ai-translation-state', 'error');
                     div.style.marginTop = '6px';
                     div.style.marginBottom = '16px';
                     div.style.paddingLeft = '12px';

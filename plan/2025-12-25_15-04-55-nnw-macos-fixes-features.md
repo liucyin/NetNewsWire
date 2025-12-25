@@ -48,6 +48,7 @@ Phase 1：建立基线与复现用例（里程碑：可稳定复现 6 个需求�
 - 前置条件：Preferences > AI 启用 Hover Translation；modifier=Control（或用户设置）；可制造失败（例如 provider 配置无效、断网）
 - 操作步骤（失败）：鼠标悬停段落并按 modifier → 等待 error → 再次按 modifier
 - 期望结果（失败→重试→成功）：第二次按 modifier 进入 loading 并重新发起翻译请求；成功后替换为翻译文本；成功状态下 modifier 仍保持展开/折叠
+- 验证结果：NNW-030 受限验收（2025-12-25）— 已验证 `XcodebuildMcp` macOS build；需按该样例手工验证失败→重试→成功与 success toggle
 
 ### 3) 启动后自动刷新开关（样例：开/关控制启动刷新）
 - Feed：任意（建议至少包含 1 个需要刷新才能出现的新文章的订阅）
