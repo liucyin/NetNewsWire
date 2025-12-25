@@ -1,10 +1,12 @@
 import AppKit
+import RSCore
 
 final class AIPreferencesViewController: NSViewController {
 
-    private let settings = AISettings.shared
-    
-    // MARK: - UI Configuration
+	    private let settings = AISettings.shared
+	    private lazy var defaultKeyboardShortcutKeys = Self.loadDefaultKeyboardShortcutKeys()
+	    
+	    // MARK: - UI Configuration
     private lazy var tabView: NSTabView = {
         let tab = NSTabView()
         tab.translatesAutoresizingMaskIntoConstraints = false
@@ -146,21 +148,35 @@ final class AIPreferencesViewController: NSViewController {
         return p
     }()
 
-    private lazy var summaryPromptField: NSTextView = {
-        let tv = NSTextView()
-        tv.string = settings.summaryPrompt
-        tv.isRichText = false
-        tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+	    private lazy var summaryPromptField: NSTextView = {
+	        let tv = NSTextView()
+	        tv.string = settings.summaryPrompt
+	        tv.isRichText = false
+	        tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         tv.delegate = self
         tv.isEditable = true; tv.allowsUndo = true;
-        tv.autoresizingMask = [.width]
-        return tv
-    }()
+	        tv.autoresizingMask = [.width]
+	        return tv
+	    }()
 
-    // MARK: - Translation Tab UI
-    private lazy var translationView: NSView = {
-        let view = NSView()
-        setupTranslationUI(in: view)
+	    private lazy var aiSummaryShortcutRecorder: KeyboardShortcutRecorderView = {
+	        let recorder = KeyboardShortcutRecorderView()
+	        recorder.shortcutDictionary = AppDefaults.shared.aiSummaryKeyboardShortcut
+	        recorder.validator = { [weak self] dictionary in
+	            guard let self else { return "Unable to validate shortcut." }
+	            return self.validateAIShortcutDictionary(dictionary, otherShortcutDictionary: AppDefaults.shared.aiTranslateKeyboardShortcut)
+	        }
+	        recorder.onChange = { dictionary in
+	            AppDefaults.shared.aiSummaryKeyboardShortcut = dictionary
+	            MainWindowKeyboardHandler.shared.reloadUserShortcuts()
+	        }
+	        return recorder
+	    }()
+
+	    // MARK: - Translation Tab UI
+	    private lazy var translationView: NSView = {
+	        let view = NSView()
+	        setupTranslationUI(in: view)
         return view
     }()
     
@@ -182,10 +198,10 @@ final class AIPreferencesViewController: NSViewController {
         return popup
     }()
     
-    private lazy var translationPromptField: NSTextView = {
-        let tv = NSTextView()
-        tv.string = settings.translationPrompt
-        tv.isRichText = false
+	    private lazy var translationPromptField: NSTextView = {
+	        let tv = NSTextView()
+	        tv.string = settings.translationPrompt
+	        tv.isRichText = false
         tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         tv.delegate = self
         tv.isEditable = true
@@ -194,13 +210,27 @@ final class AIPreferencesViewController: NSViewController {
         tv.isHorizontallyResizable = false
         tv.autoresizingMask = [.width]
         tv.textContainer?.widthTracksTextView = true
-        tv.textContainer?.containerSize = NSSize(width: 1000, height: CGFloat.greatestFiniteMagnitude)
-        return tv
-    }()
-    
-    private lazy var autoTranslateCheckbox: NSButton = {
-        let button = NSButton(checkboxWithTitle: "Auto translate non-target language articles", target: self, action: #selector(toggleAutoTranslate(_:)))
-        button.state = settings.autoTranslate ? .on : .off
+	        tv.textContainer?.containerSize = NSSize(width: 1000, height: CGFloat.greatestFiniteMagnitude)
+	        return tv
+	    }()
+
+	    private lazy var aiTranslateShortcutRecorder: KeyboardShortcutRecorderView = {
+	        let recorder = KeyboardShortcutRecorderView()
+	        recorder.shortcutDictionary = AppDefaults.shared.aiTranslateKeyboardShortcut
+	        recorder.validator = { [weak self] dictionary in
+	            guard let self else { return "Unable to validate shortcut." }
+	            return self.validateAIShortcutDictionary(dictionary, otherShortcutDictionary: AppDefaults.shared.aiSummaryKeyboardShortcut)
+	        }
+	        recorder.onChange = { dictionary in
+	            AppDefaults.shared.aiTranslateKeyboardShortcut = dictionary
+	            MainWindowKeyboardHandler.shared.reloadUserShortcuts()
+	        }
+	        return recorder
+	    }()
+	    
+	    private lazy var autoTranslateCheckbox: NSButton = {
+	        let button = NSButton(checkboxWithTitle: "Auto translate non-target language articles", target: self, action: #selector(toggleAutoTranslate(_:)))
+	        button.state = settings.autoTranslate ? .on : .off
         return button
     }()
 
@@ -327,17 +357,18 @@ final class AIPreferencesViewController: NSViewController {
         ])
     }
     
-    private func setupSummaryUI(in view: NSView) {
-        let scroll = NSScrollView()
-        scroll.documentView = summaryPromptField
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        
-        let topGrid = NSGridView(views: [
-            [NSTextField(labelWithString: "Provider:"), summaryProviderPopup],
-        ])
-        topGrid.rowSpacing = 8
-        topGrid.column(at: 0).xPlacement = .trailing
+	    private func setupSummaryUI(in view: NSView) {
+	        let scroll = NSScrollView()
+	        scroll.documentView = summaryPromptField
+	        scroll.hasVerticalScroller = true
+	        scroll.borderType = .bezelBorder
+	        
+	        let topGrid = NSGridView(views: [
+	            [NSTextField(labelWithString: "Provider:"), summaryProviderPopup],
+	            [NSTextField(labelWithString: "Shortcut:"), aiSummaryShortcutRecorder],
+	        ])
+	        topGrid.rowSpacing = 8
+	        topGrid.column(at: 0).xPlacement = .trailing
         
         let resetBtn = NSButton(title: "Reset Prompt", target: self, action: #selector(resetSummaryPrompt))
         let clearCacheBtn = NSButton(title: "Clear Cache", target: self, action: #selector(clearSummaryCache))
@@ -365,20 +396,21 @@ final class AIPreferencesViewController: NSViewController {
         ])
     }
     
-    private func setupTranslationUI(in view: NSView) {
-        let scroll = NSScrollView()
-        scroll.documentView = translationPromptField
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        
-        let topGrid = NSGridView(views: [
-            [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
-            [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup],
-            [NSGridCell.emptyContentView, autoTranslateCheckbox],
-            [NSGridCell.emptyContentView, autoTranslateTitlesCheckbox],
-            [NSGridCell.emptyContentView, hoverTranslationCheckbox],
-            [NSTextField(labelWithString: "Hover Modifier:"), hoverModifierPopup]
-        ])
+	    private func setupTranslationUI(in view: NSView) {
+	        let scroll = NSScrollView()
+	        scroll.documentView = translationPromptField
+	        scroll.hasVerticalScroller = true
+	        scroll.borderType = .bezelBorder
+	        
+	        let topGrid = NSGridView(views: [
+	            [NSTextField(labelWithString: "Provider:"), translationProviderPopup],
+	            [NSTextField(labelWithString: "Target Language:"), outputLanguagePopup],
+	            [NSTextField(labelWithString: "Shortcut:"), aiTranslateShortcutRecorder],
+	            [NSGridCell.emptyContentView, autoTranslateCheckbox],
+	            [NSGridCell.emptyContentView, autoTranslateTitlesCheckbox],
+	            [NSGridCell.emptyContentView, hoverTranslationCheckbox],
+	            [NSTextField(labelWithString: "Hover Modifier:"), hoverModifierPopup]
+	        ])
         topGrid.rowSpacing = 8
         topGrid.column(at: 0).xPlacement = .trailing
         
@@ -614,4 +646,77 @@ extension AIPreferencesViewController: NSTextViewDelegate {
             settings.translationPrompt = textView.string
         }
     }
+}
+
+private extension AIPreferencesViewController {
+
+	static func loadDefaultKeyboardShortcutKeys() -> Set<KeyboardKey> {
+		let resourceNames = [
+			"GlobalKeyboardShortcuts",
+			"TimelineKeyboardShortcuts",
+			"SidebarKeyboardShortcuts",
+			"DetailKeyboardShortcuts",
+		]
+
+		var keys = Set<KeyboardKey>()
+		for resourceName in resourceNames {
+			guard let path = Bundle.main.path(forResource: resourceName, ofType: "plist") else {
+				continue
+			}
+			guard let rawShortcuts = NSArray(contentsOfFile: path) as? [[String: Any]] else {
+				continue
+			}
+			for shortcutDictionary in rawShortcuts {
+				guard let shortcut = KeyboardShortcut(dictionary: shortcutDictionary) else { continue }
+				keys.insert(shortcut.key)
+			}
+		}
+
+		return keys
+	}
+
+	func validateAIShortcutDictionary(_ dictionary: [String: Any], otherShortcutDictionary: [String: Any]?) -> String? {
+		guard let keyString = dictionary["key"] as? String else {
+			return "Unsupported key."
+		}
+
+		let command = Self.boolValue(dictionary["commandModifier"])
+		let option = Self.boolValue(dictionary["optionModifier"])
+		let control = Self.boolValue(dictionary["controlModifier"])
+
+		guard command || option || control else {
+			return "Include Command, Option, or Control."
+		}
+
+		if keyString == "[space]" && (command || control) {
+			return "Reserved by the system."
+		}
+		if keyString == "[tab]" && command {
+			return "Reserved by the system."
+		}
+
+		guard let candidateKey = KeyboardKey(dictionary: dictionary) else {
+			return "Unsupported key."
+		}
+
+		if defaultKeyboardShortcutKeys.contains(candidateKey) {
+			return "Conflicts with an existing shortcut."
+		}
+
+		if let otherShortcutDictionary, let otherKey = KeyboardKey(dictionary: otherShortcutDictionary), candidateKey == otherKey {
+			return "Already used by the other AI shortcut."
+		}
+
+		return nil
+	}
+
+	static func boolValue(_ value: Any?) -> Bool {
+		if let value = value as? Bool {
+			return value
+		}
+		if let value = value as? NSNumber {
+			return value.boolValue
+		}
+		return false
+	}
 }

@@ -43,15 +43,19 @@ final class AppDefaults: Sendable {
 		static let exportOPMLAccountID = "exportOPMLAccountID"
 		static let defaultBrowserID = "defaultBrowserID"
 		static let currentThemeName = "currentThemeName"
-		static let articleContentJavascriptEnabled = "articleContentJavascriptEnabled"
+			static let articleContentJavascriptEnabled = "articleContentJavascriptEnabled"
 
-		static let timelineShowsArticleThumbnails = "timelineShowsArticleThumbnails"
+			static let timelineShowsArticleThumbnails = "timelineShowsArticleThumbnails"
 
-		// Hidden prefs
-		static let showDebugMenu = "ShowDebugMenu"
-		static let timelineShowsSeparators = "CorreiaSeparators"
-		static let showTitleOnMainWindow = "KafasisTitleMode"
-		static let feedDoubleClickMarkAsRead = "GruberFeedDoubleClickMarkAsRead"
+			// AI Keyboard Shortcuts (UserDefaults override layer)
+			static let aiSummaryKeyboardShortcut = "aiSummaryKeyboardShortcut"
+			static let aiTranslateKeyboardShortcut = "aiTranslateKeyboardShortcut"
+
+			// Hidden prefs
+			static let showDebugMenu = "ShowDebugMenu"
+			static let timelineShowsSeparators = "CorreiaSeparators"
+			static let showTitleOnMainWindow = "KafasisTitleMode"
+			static let feedDoubleClickMarkAsRead = "GruberFeedDoubleClickMarkAsRead"
 		static let suppressSyncOnLaunch = "DevroeSuppressSyncOnLaunch"
 		static let webInspectorEnabled = "WebInspectorEnabled"
 		static let webInspectorStartsAttached = "__WebInspectorPageGroupLevel1__.WebKit2InspectorStartsAttached"
@@ -320,20 +324,46 @@ final class AppDefaults: Sendable {
 		}
 	}
 
-	var refreshOnLaunch: Bool {
-		get {
-			return AppDefaults.bool(for: Key.refreshOnLaunch)
+		var refreshOnLaunch: Bool {
+			get {
+				return AppDefaults.bool(for: Key.refreshOnLaunch)
+			}
+			set {
+				AppDefaults.setBool(for: Key.refreshOnLaunch, newValue)
+			}
 		}
-		set {
-			AppDefaults.setBool(for: Key.refreshOnLaunch, newValue)
-		}
-	}
 
-	var isArticleContentJavascriptEnabled: Bool {
-		get {
-			UserDefaults.standard.bool(forKey: Key.articleContentJavascriptEnabled)
+		var aiSummaryKeyboardShortcut: [String: Any]? {
+			get {
+				UserDefaults.standard.dictionary(forKey: Key.aiSummaryKeyboardShortcut)
+			}
+			set {
+				if let newValue {
+					UserDefaults.standard.set(newValue, forKey: Key.aiSummaryKeyboardShortcut)
+				} else {
+					UserDefaults.standard.removeObject(forKey: Key.aiSummaryKeyboardShortcut)
+				}
+			}
 		}
-		set {
+
+		var aiTranslateKeyboardShortcut: [String: Any]? {
+			get {
+				UserDefaults.standard.dictionary(forKey: Key.aiTranslateKeyboardShortcut)
+			}
+			set {
+				if let newValue {
+					UserDefaults.standard.set(newValue, forKey: Key.aiTranslateKeyboardShortcut)
+				} else {
+					UserDefaults.standard.removeObject(forKey: Key.aiTranslateKeyboardShortcut)
+				}
+			}
+		}
+
+		var isArticleContentJavascriptEnabled: Bool {
+			get {
+				UserDefaults.standard.bool(forKey: Key.articleContentJavascriptEnabled)
+			}
+			set {
 			UserDefaults.standard.set(newValue, forKey: Key.articleContentJavascriptEnabled)
 		}
 	}
