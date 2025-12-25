@@ -64,6 +64,17 @@ final class DetailWebViewController: NSViewController {
         webView.evaluateJavaScript("if (window.triggerHoverAction) { window.triggerHoverAction(); }")
     }
 
+    @MainActor func triggerHoverActionFromHoveredElement() {
+        let js = """
+        if (window.triggerHoverActionFromHover) {
+            window.triggerHoverActionFromHover();
+        } else if (window.triggerHoverAction) {
+            window.triggerHoverAction();
+        }
+        """
+        webView.evaluateJavaScript(js)
+    }
+
     @MainActor func triggerHoverAction(at windowPoint: NSPoint) {
         let viewPoint = webView.convert(windowPoint, from: nil)
         let x = viewPoint.x
@@ -810,6 +821,57 @@ extension DetailWebViewController {
         let js = """
         (function() {
             var lastHoveredNode = null;
+
+            function findActionableNode(start) {
+                if (!start) {
+                    return null;
+                }
+
+                // If hovering over an injected translation block, map back to its source node.
+                if (start.closest) {
+                    var translation = start.closest('.ai-translation');
+                    if (translation && translation.previousElementSibling) {
+                        return translation.previousElementSibling;
+                    }
+                }
+
+                var node = start;
+                while (node && node !== document.body) {
+                    var tag = (node.tagName || '').toLowerCase();
+                    if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
+                        return node;
+                    }
+                    node = node.parentElement;
+                }
+                return null;
+            }
+
+            function depth(node) {
+                var d = 0;
+                while (node) {
+                    d++;
+                    node = node.parentElement;
+                }
+                return d;
+            }
+
+            function deepestHoveredElement() {
+                var hovered = document.querySelectorAll(':hover');
+                if (!hovered || hovered.length === 0) {
+                    return null;
+                }
+                var best = null;
+                var bestDepth = -1;
+                for (var i = 0; i < hovered.length; i++) {
+                    var candidate = hovered[i];
+                    var d = depth(candidate);
+                    if (d > bestDepth) {
+                        bestDepth = d;
+                        best = candidate;
+                    }
+                }
+                return best;
+            }
             
             function triggerAction(node) {
                 if (!node.id) {
@@ -855,16 +917,7 @@ extension DetailWebViewController {
             }
             
             document.addEventListener('mouseover', function(e) {
-                var target = e.target;
-                while (target && target !== document.body) {
-                    var tag = target.tagName.toLowerCase();
-                    if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
-                        lastHoveredNode = target;
-                        return;
-                    }
-                    target = target.parentElement;
-                }
-                lastHoveredNode = null;
+                lastHoveredNode = findActionableNode(e.target);
             });
 
             document.addEventListener('mouseleave', function() {
@@ -883,17 +936,33 @@ extension DetailWebViewController {
                 }
             };
 
+            window.triggerHoverActionFromHover = function() {
+                var hovered = null;
+                try {
+                    hovered = deepestHoveredElement();
+                } catch (e) {
+                    hovered = null;
+                }
+
+                var actionable = findActionableNode(hovered);
+                if (actionable) {
+                    lastHoveredNode = actionable;
+                    triggerAction(actionable);
+                    return;
+                }
+
+                if (lastHoveredNode) {
+                    triggerAction(lastHoveredNode);
+                }
+            };
+
             window.triggerHoverActionAt = function(x, y) {
                 try {
-                    var target = document.elementFromPoint(x, y);
-                    while (target && target !== document.body) {
-                        var tag = (target.tagName || '').toLowerCase();
-                        if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
-                            lastHoveredNode = target;
-                            triggerAction(lastHoveredNode);
-                            return;
-                        }
-                        target = target.parentElement;
+                    var actionable = findActionableNode(document.elementFromPoint(x, y));
+                    if (actionable) {
+                        lastHoveredNode = actionable;
+                        triggerAction(actionable);
+                        return;
                     }
                 } catch (e) {
                     // Ignore and fall back to last hovered node

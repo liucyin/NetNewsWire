@@ -76,24 +76,25 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 	            Task { @MainActor in
 	                guard let self = self else { return }
 	                if !AISettings.shared.hoverTranslationEnabled { return }
-                
-                let modifier = AISettings.shared.hoverModifier
-                let flags = event.modifierFlags
-                
-                var matches = false
-                switch modifier {
-                case .control: matches = flags.contains(.control)
-                case .option: matches = flags.contains(.option)
-                case .command: matches = flags.contains(.command)
-                }
+	                
+	                let modifier = AISettings.shared.hoverModifier
+	                let flags = event.modifierFlags
+	                
+	                var matches = false
+	                switch modifier {
+	                case .control: matches = flags.contains(.control)
+	                case .option: matches = flags.contains(.option)
+	                case .command: matches = flags.contains(.command)
+	                }
 	                
 	                if matches {
-	                    guard let eventWindow = event.window,
-	                          let webViewWindow = self.currentWebViewController.webView.window,
-	                          eventWindow === webViewWindow else {
-	                        return
-	                    }
-	                    self.currentWebViewController.triggerHoverAction(at: event.locationInWindow)
+	                    guard let window = self.currentWebViewController.webView.window, window.isKeyWindow else { return }
+
+	                    let windowPoint = window.mouseLocationOutsideOfEventStream
+	                    let viewPoint = self.currentWebViewController.webView.convert(windowPoint, from: nil)
+	                    guard self.currentWebViewController.webView.bounds.contains(viewPoint) else { return }
+
+	                    self.currentWebViewController.triggerHoverActionFromHoveredElement()
 	                }
 	            }
 	            return event
