@@ -33,11 +33,12 @@ final class AppDefaults: Sendable {
 		static let detailFontSize = "detailFontSize"
 		static let openInBrowserInBackground = "openInBrowserInBackground"
 		static let subscribeToFeedsInDefaultBrowser = "subscribeToFeedsInDefaultBrowser"
-		static let articleTextSize = "articleTextSize"
-		static let refreshInterval = "refreshInterval"
-		static let addFeedAccountID = "addFeedAccountID"
-		static let addFeedFolderName = "addFeedFolderName"
-		static let addFolderAccountID = "addFolderAccountID"
+			static let articleTextSize = "articleTextSize"
+			static let refreshInterval = "refreshInterval"
+			static let refreshOnLaunch = "refreshOnLaunch"
+			static let addFeedAccountID = "addFeedAccountID"
+			static let addFeedFolderName = "addFeedFolderName"
+			static let addFolderAccountID = "addFolderAccountID"
 		static let importOPMLAccountID = "importOPMLAccountID"
 		static let exportOPMLAccountID = "exportOPMLAccountID"
 		static let defaultBrowserID = "defaultBrowserID"
@@ -319,6 +320,15 @@ final class AppDefaults: Sendable {
 		}
 	}
 
+	var refreshOnLaunch: Bool {
+		get {
+			return AppDefaults.bool(for: Key.refreshOnLaunch)
+		}
+		set {
+			AppDefaults.setBool(for: Key.refreshOnLaunch, newValue)
+		}
+	}
+
 	var isArticleContentJavascriptEnabled: Bool {
 		get {
 			UserDefaults.standard.bool(forKey: Key.articleContentJavascriptEnabled)
@@ -335,18 +345,19 @@ final class AppDefaults: Sendable {
  		let showDebugMenu = false
  		#endif
 
-		let defaults: [String : Any] = [
-			Key.sidebarFontSize: FontSize.medium.rawValue,
-			Key.timelineFontSize: FontSize.medium.rawValue,
-			Key.detailFontSize: FontSize.medium.rawValue,
-			Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue,
-			Key.timelineGroupByFeed: false,
-			"NSScrollViewShouldScrollUnderTitlebar": false,
-			Key.refreshInterval: RefreshInterval.everyHour.rawValue,
-			Key.showDebugMenu: showDebugMenu,
-			Key.currentThemeName: Self.defaultThemeName,
-			Key.articleContentJavascriptEnabled: true,
-			Key.timelineShowsArticleThumbnails: true
+			let defaults: [String : Any] = [
+				Key.sidebarFontSize: FontSize.medium.rawValue,
+				Key.timelineFontSize: FontSize.medium.rawValue,
+				Key.detailFontSize: FontSize.medium.rawValue,
+				Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue,
+				Key.timelineGroupByFeed: false,
+				"NSScrollViewShouldScrollUnderTitlebar": false,
+				Key.refreshInterval: RefreshInterval.everyHour.rawValue,
+				Key.refreshOnLaunch: true,
+				Key.showDebugMenu: showDebugMenu,
+				Key.currentThemeName: Self.defaultThemeName,
+				Key.articleContentJavascriptEnabled: true,
+				Key.timelineShowsArticleThumbnails: true
 		]
 
 		UserDefaults.standard.register(defaults: defaults)

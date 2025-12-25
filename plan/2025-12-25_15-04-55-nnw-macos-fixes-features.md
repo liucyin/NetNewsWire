@@ -58,6 +58,7 @@ Phase 1：建立基线与复现用例（里程碑：可稳定复现 6 个需求�
 - 期望结果（关闭路径）：启动流程不调用 `refreshTimer.timedRefresh` / `ArticleStatusSyncTimer.shared.timedRefresh`
 - 操作步骤（开启路径）：开启开关 → 冷启动 → 观察自动 refresh/sync 触发
 - 期望结果（开启路径）：行为与历史一致（默认开启）
+- 验证结果：NNW-040 受限验收（2025-12-25）— 已验证 `XcodebuildMcp` macOS build；需手工复测冷启动开/关分别是否触发 timedRefresh
 
 ### 4) 图片查看器：点击图片打开/关闭（样例：正文图片 -> viewer）
 - Feed：任意含图文章（建议同“缩略图样例”文章）

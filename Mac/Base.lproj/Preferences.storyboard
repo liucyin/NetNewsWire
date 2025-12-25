@@ -235,6 +235,26 @@
                                     <box verticalHuggingPriority="750" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="hQy-ng-ijd">
                                         <rect key="frame" x="0.0" y="42" width="399" height="5"/>
                                     </box>
+                                    <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="yF3-0n-Lch">
+                                        <rect key="frame" x="115" y="26" width="285" height="18"/>
+                                        <buttonCell key="cell" type="check" title="Refresh on Launch" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="n1q-6p-2RZ">
+                                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                            <font key="font" metaFont="system"/>
+                                        </buttonCell>
+                                        <connections>
+                                            <binding destination="mAF-gO-1PI" name="value" keyPath="values.refreshOnLaunch" id="5dC-Ft-2hG">
+                                                <dictionary key="options">
+                                                    <bool key="NSAllowsEditingMultipleValuesSelection" value="NO"/>
+                                                    <bool key="NSConditionallySetsEnabled" value="NO"/>
+                                                    <integer key="NSMultipleValuesPlaceholder" value="1"/>
+                                                    <integer key="NSNoSelectionPlaceholder" value="1"/>
+                                                    <integer key="NSNotApplicablePlaceholder" value="1"/>
+                                                    <integer key="NSNullPlaceholder" value="1"/>
+                                                    <bool key="NSRaisesForNotApplicableKeys" value="NO"/>
+                                                </dictionary>
+                                            </binding>
+                                        </connections>
+                                    </button>
                                     <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="ucw-vG-yLt">
                                         <rect key="frame" x="-2" y="7" width="113" height="16"/>
                                         <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="right" title="Refresh Feeds:" id="F7c-lm-g97">
@@ -289,6 +309,9 @@
                                     <constraint firstItem="Z6O-Zt-V1g" firstAttribute="firstBaseline" secondItem="pR2-Bf-7Fd" secondAttribute="firstBaseline" id="72z-7d-9Qn"/>
                                     <constraint firstItem="hQy-ng-ijd" firstAttribute="top" secondItem="Yrc-6Q-kx8" secondAttribute="bottom" constant="20" id="7iQ-QN-Ubh"/>
                                     <constraint firstItem="Yrc-6Q-kx8" firstAttribute="leading" secondItem="Z6O-Zt-V1g" secondAttribute="leading" id="AQY-vT-qR7"/>
+                                    <constraint firstItem="yF3-0n-Lch" firstAttribute="leading" secondItem="Z6O-Zt-V1g" secondAttribute="leading" id="H2X-LM-aqF"/>
+                                    <constraint firstAttribute="trailing" secondItem="yF3-0n-Lch" secondAttribute="trailing" id="LkU-Wi-q5o"/>
+                                    <constraint firstItem="yF3-0n-Lch" firstAttribute="top" secondItem="hQy-ng-ijd" secondAttribute="bottom" constant="12" id="M1N-Fv-wFj"/>
                                     <constraint firstItem="yrg-M3-Dbz" firstAttribute="leading" secondItem="Ut3-yd-q6G" secondAttribute="leading" id="Bmt-Mn-CCl"/>
                                     <constraint firstItem="UI6-sq-M15" firstAttribute="top" secondItem="1w0-nA-DEO" secondAttribute="bottom" constant="12" id="DMk-OP-dpa"/>
                                     <constraint firstItem="Ubm-Pk-l7x" firstAttribute="top" secondItem="Ci4-fW-KjU" secondAttribute="bottom" constant="12" id="E3r-xf-7aZ"/>
@@ -304,7 +327,7 @@
                                     <constraint firstItem="Ubm-Pk-l7x" firstAttribute="leading" secondItem="Z6O-Zt-V1g" secondAttribute="leading" id="PXc-G4-8pH"/>
                                     <constraint firstItem="S2Z-bG-jYk" firstAttribute="firstBaseline" secondItem="ISO-Wu-R60" secondAttribute="firstBaseline" id="QBC-MT-MY5"/>
                                     <constraint firstAttribute="trailing" secondItem="Z6O-Zt-V1g" secondAttribute="trailing" constant="1" id="Qa5-bc-lvY"/>
-                                    <constraint firstItem="SFF-mL-yc8" firstAttribute="top" secondItem="hQy-ng-ijd" secondAttribute="bottom" constant="20" id="S01-ZA-i2d"/>
+                                    <constraint firstItem="SFF-mL-yc8" firstAttribute="top" secondItem="yF3-0n-Lch" secondAttribute="bottom" constant="12" id="S01-ZA-i2d"/>
                                     <constraint firstAttribute="trailing" secondItem="Tdg-6Y-gvW" secondAttribute="trailing" constant="1" id="SOE-le-vT8"/>
                                     <constraint firstItem="Z6O-Zt-V1g" firstAttribute="leading" secondItem="pR2-Bf-7Fd" secondAttribute="trailing" constant="8" symbolic="YES" id="TWU-6a-gBr"/>
                                     <constraint firstItem="Ci4-fW-KjU" firstAttribute="top" secondItem="Tdg-6Y-gvW" secondAttribute="bottom" constant="20" id="UkR-wd-4Oe"/>
