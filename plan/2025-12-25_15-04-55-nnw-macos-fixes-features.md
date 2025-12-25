@@ -143,6 +143,7 @@ Phase 9：验证、回归与交付（里程碑：构建通过、核心场景回�
 - 性能回归：对图片 viewer 与 Timeline 滚动做一次 Instruments 快速检查（确保“丝滑 + 低资源”目标达成）。
 - Git：严格按 `DEVELOPMENT_WORKFLOW.md` 选择分支/合并/打 tag（大功能建议 feature branch 分阶段合并）。
 - 回滚策略：所有新增大交互建议通过 AppDefaults feature flag 保护，出现问题可快速关闭并回退到“在浏览器打开图片”。
+- 验证结果：NNW-090 受限验收（2025-12-25）— 已验证 `XcodebuildMcp` macOS build；`XcodebuildMcp test_macos` 仍因 NetNewsWireTests 签名需要 Development Team 而无法运行，需按清单手工回归并在可用环境补跑 XCTest。
 
 ⚠️ 风险与注意事项
 - HTML 图片提取误判：过宽的正则可能抓到 tracking pixel/广告图；需要过滤尺寸/协议/常见占位。
