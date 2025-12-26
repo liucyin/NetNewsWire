@@ -1346,7 +1346,9 @@ private enum ImageViewerImageDecoder {
 
 		private func setZoomScale(_ scale: CGFloat) {
 			let clamped = max(1, min(scale, maxZoomScale))
-			if abs(clamped - 1) < 0.02 {
+			// Only snap back to 1.0 when zooming out — otherwise small scroll deltas
+			// near 1.0 create a deadzone where zoom-in appears to do nothing.
+			if clamped < zoomScale, abs(clamped - 1) < 0.02 {
 				zoomScale = 1
 			panOffset = .zero
 			layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
