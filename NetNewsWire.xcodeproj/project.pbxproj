@@ -51,6 +51,8 @@
 		843E2F182CF2B8A700ED170F /* RSWeb in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 843E2F162CF2B8A700ED170F /* RSWeb */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		843E2F1A2CF2B8C500ED170F /* RSWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 843E2F192CF2B8C500ED170F /* RSWeb */; };
 		843E2F1B2CF2B8C500ED170F /* RSWeb in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 843E2F192CF2B8C500ED170F /* RSWeb */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		3817DF236DDBCE89B8A00EF9 /* RSMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = 21480DA9EDF4442302DDB882 /* RSMarkdown */; };
+		E2B2F0C315D4B9503884A0A0 /* RSMarkdown in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 21480DA9EDF4442302DDB882 /* RSMarkdown */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		843E2F1D2CF2B8D300ED170F /* RSWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 843E2F1C2CF2B8D300ED170F /* RSWeb */; };
 		848E84CD2DB749440023F3BA /* RSCore in Frameworks */ = {isa = PBXBuildFile; productRef = 848E84CC2DB749440023F3BA /* RSCore */; };
 		848E84CE2DB749440023F3BA /* RSCore in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 848E84CC2DB749440023F3BA /* RSCore */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
@@ -203,6 +205,7 @@
 				8424B31C2DB73D530053AA11 /* RSParser in Embed Frameworks */,
 				513F32782593EE6F0003048F /* Secrets in Embed Frameworks */,
 				843E2F1B2CF2B8C500ED170F /* RSWeb in Embed Frameworks */,
+				E2B2F0C315D4B9503884A0A0 /* RSMarkdown in Embed Frameworks */,
 				513F327B2593EE6F0003048F /* SyncDatabase in Embed Frameworks */,
 				84EE3F162DB8A0A0009D3A8D /* RSTree in Embed Frameworks */,
 				513F32722593EE6F0003048F /* Articles in Embed Frameworks */,
@@ -575,6 +578,7 @@
 				8424B31B2DB73D530053AA11 /* RSParser in Frameworks */,
 				516B695F24D2F33B00B5702F /* Account in Frameworks */,
 				843E2F1A2CF2B8C500ED170F /* RSWeb in Frameworks */,
+				3817DF236DDBCE89B8A00EF9 /* RSMarkdown in Frameworks */,
 				513F32712593EE6F0003048F /* Articles in Frameworks */,
 				513F32772593EE6F0003048F /* Secrets in Frameworks */,
 				84EE434B2DB8A44C009D3A8D /* RSDatabase in Frameworks */,
@@ -829,6 +833,7 @@
 				513F32792593EE6F0003048F /* SyncDatabase */,
 				179D280A26F6F93D003B2E0A /* Zip */,
 				843E2F192CF2B8C500ED170F /* RSWeb */,
+				21480DA9EDF4442302DDB882 /* RSMarkdown */,
 				8424B31A2DB73D530053AA11 /* RSParser */,
 				848E84D42DB749670023F3BA /* RSCore */,
 				84EE3F142DB8A0A0009D3A8D /* RSTree */,
@@ -1667,6 +1672,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 179D280926F6F93D003B2E0A /* XCRemoteSwiftPackageReference "Zip" */;
 			productName = Zip;
+		};
+		21480DA9EDF4442302DDB882 /* RSMarkdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RSMarkdown;
 		};
 		4679674525E599C100844E8D /* Articles */ = {
 			isa = XCSwiftPackageProductDependency;

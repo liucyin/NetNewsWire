@@ -24,14 +24,20 @@ jobs:
 
       - name: Build NetNewsWire-iOS (Release, unsigned)
         run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodebuild -showsdks
+
+          mkdir -p build_ios
           xcodebuild build \
             -scheme "NetNewsWire-iOS" \
             -configuration Release \
             -derivedDataPath build_ios \
+            -resultBundlePath build_ios/NetNewsWire-iOS.xcresult \
             -destination 'generic/platform=iOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build_ios/xcodebuild.log
 
       - name: Package unsigned IPA
         run: |
@@ -49,3 +55,11 @@ jobs:
           name: NetNewsWire-iOS-IPA
           path: build_ios/Build/Products/Release-iphoneos/NetNewsWire_unsigned.ipa
 
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetNewsWire-iOS-BuildLogs
+          path: |
+            build_ios/xcodebuild.log
+            build_ios/NetNewsWire-iOS.xcresult
