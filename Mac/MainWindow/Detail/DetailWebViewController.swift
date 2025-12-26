@@ -439,15 +439,15 @@ private extension DetailWebViewController {
         }
     }
 
-	private func ensureImageViewerOverlay() -> ImageViewerOverlayView {
-        let useFullWindow = AppDefaults.shared.imageViewerFullWindow
-        
-        let targetView: NSView
-        if useFullWindow, let windowContentView = view.window?.contentView {
-            targetView = windowContentView
-        } else {
-            targetView = view
-        }
+		private func ensureImageViewerOverlay() -> ImageViewerOverlayView {
+	        let useFullWindow = AppDefaults.shared.imageViewerFullWindow
+	        
+	        let targetView: NSView
+	        if useFullWindow, let windowContentView = view.window?.contentView {
+	            targetView = windowContentView
+	        } else {
+	            targetView = view
+	        }
 
 		if imageViewerOverlay == nil {
 			let newOverlay = ImageViewerOverlayView()
@@ -459,11 +459,12 @@ private extension DetailWebViewController {
 			self.imageViewerOverlay = newOverlay
 		}
         
-        let overlay = imageViewerOverlay! // Must exist now
+	        let overlay = imageViewerOverlay! // Must exist now
+	        overlay.setUsesFullWindow(targetView == view.window?.contentView)
 
-        if overlay.superview != targetView {
-            overlay.removeFromSuperview() // Remove from old superview if reparenting
-            targetView.addSubview(overlay, positioned: .above, relativeTo: nil)
+	        if overlay.superview != targetView {
+	            overlay.removeFromSuperview() // Remove from old superview if reparenting
+	            targetView.addSubview(overlay, positioned: .above, relativeTo: nil)
             
             var topConstraint: NSLayoutConstraint
             let targetLayoutGuide = targetView.safeAreaLayoutGuide // Use safeAreaLayoutGuide for consistency
@@ -1126,15 +1127,17 @@ private enum ImageViewerImageDecoder {
 	}
 }
 
-@MainActor private final class ImageViewerOverlayView: NSView {
-	var onClose: (() -> Void)?
+	@MainActor private final class ImageViewerOverlayView: NSView {
+		var onClose: (() -> Void)?
 
-	private let imageView = NonDraggableImageView()
-	private let closeButton = NSButton()
-	private let progressIndicator = NSProgressIndicator()
+		private let imageView = NonDraggableImageView()
+		private let closeButton = NSButton()
+		private let progressIndicator = NSProgressIndicator()
+		private var closeButtonTopConstraint: NSLayoutConstraint?
+		private var closeButtonTrailingConstraint: NSLayoutConstraint?
 
-	private let baseBackgroundAlpha: CGFloat = 1.0
-	private let maxZoomScale: CGFloat = 8
+		private let baseBackgroundAlpha: CGFloat = 1.0
+		private let maxZoomScale: CGFloat = 8
 
 	private var zoomScale: CGFloat = 1
 	private var panOffset = CGPoint.zero
@@ -1149,10 +1152,10 @@ private enum ImageViewerImageDecoder {
 	private var dragStartPoint = CGPoint.zero
 	private var dragStartOffset = CGPoint.zero
 
-	override init(frame frameRect: NSRect) {
-		super.init(frame: frameRect)
-		wantsLayer = true
-		layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
+		override init(frame frameRect: NSRect) {
+			super.init(frame: frameRect)
+			wantsLayer = true
+			layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
 
 		imageView.translatesAutoresizingMaskIntoConstraints = true // We use manual layout for zoom
 		imageView.imageScaling = .scaleProportionallyUpOrDown
@@ -1173,19 +1176,21 @@ private enum ImageViewerImageDecoder {
         closeButton.isBordered = false
         closeButton.contentTintColor = .white
         closeButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close")?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 28, weight: .semibold))
-		closeButton.target = self
-		closeButton.action = #selector(closeButtonPressed(_:))
-		addSubview(closeButton)
+			closeButton.target = self
+			closeButton.action = #selector(closeButtonPressed(_:))
+			addSubview(closeButton)
 
-		NSLayoutConstraint.activate([
-			closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 60),
-			closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            closeButton.widthAnchor.constraint(equalToConstant: 44),
-            closeButton.heightAnchor.constraint(equalToConstant: 44),
+			closeButtonTopConstraint = closeButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 60)
+			closeButtonTrailingConstraint = closeButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -20)
+			NSLayoutConstraint.activate([
+				closeButtonTopConstraint!,
+				closeButtonTrailingConstraint!,
+	            closeButton.widthAnchor.constraint(equalToConstant: 44),
+	            closeButton.heightAnchor.constraint(equalToConstant: 44),
 
-			progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
-			progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
-		])
+				progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+				progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
+			])
 
 		reset()
 	}
@@ -1206,36 +1211,64 @@ private enum ImageViewerImageDecoder {
 		return self
 	}
 
-	override func layout() {
-		super.layout()
-		updateImageFrame()
-	}
+		override func layout() {
+			super.layout()
+			updateImageFrame()
+		}
 
-	func showLoading() {
-		resetInteractionState()
-		imageView.image = nil
-		progressIndicator.startAnimation(nil)
-        // Ensure reset state
-        imageView.frame = .zero
-	}
+		override func resetCursorRects() {
+			super.resetCursorRects()
+			guard !isHidden, alphaValue > 0 else { return }
 
-	func showImage(_ image: NSImage) {
-		resetInteractionState()
-		progressIndicator.stopAnimation(nil)
-		imageView.image = image
-		updateImageFrame()
-	}
+			let cursor: NSCursor
+			if imageView.image != nil, zoomScale > 1.01 {
+				cursor = (dragMode == .pan) ? .closedHand : .openHand
+			} else {
+				cursor = .arrow
+			}
 
-	func reset() {
-		progressIndicator.stopAnimation(nil)
-		imageView.image = nil
-		resetInteractionState()
-		updateImageFrame()
-	}
+			addCursorRect(bounds, cursor: cursor)
+			addCursorRect(closeButton.frame, cursor: .arrow)
+		}
 
-	@objc private func closeButtonPressed(_ sender: Any?) {
-		onClose?()
-	}
+		private func invalidateCursorRects() {
+			window?.invalidateCursorRects(for: self)
+		}
+
+		func showLoading() {
+			resetInteractionState()
+			imageView.image = nil
+			progressIndicator.startAnimation(nil)
+	        // Ensure reset state
+	        imageView.frame = .zero
+			invalidateCursorRects()
+		}
+
+		func showImage(_ image: NSImage) {
+			resetInteractionState()
+			progressIndicator.stopAnimation(nil)
+			imageView.image = image
+			updateImageFrame()
+			invalidateCursorRects()
+		}
+
+		func reset() {
+			progressIndicator.stopAnimation(nil)
+			imageView.image = nil
+			resetInteractionState()
+			updateImageFrame()
+			invalidateCursorRects()
+		}
+
+		func setUsesFullWindow(_ usesFullWindow: Bool) {
+			// Keep the same visual position as the non-full-window overlay.
+			closeButtonTopConstraint?.constant = usesFullWindow ? 20 : 60
+			needsLayout = true
+		}
+
+		@objc private func closeButtonPressed(_ sender: Any?) {
+			onClose?()
+		}
 
 	func preferredDownsampleMaxPixelSize() -> Int {
 		let points = max(bounds.width, bounds.height)
@@ -1261,12 +1294,13 @@ private enum ImageViewerImageDecoder {
 		setZoomScale(zoomScale * factor)
 	}
 
-	override func mouseDown(with event: NSEvent) {
-		guard imageView.image != nil else { return }
-		dragStartPoint = convert(event.locationInWindow, from: nil)
-		dragStartOffset = panOffset
-		dragMode = zoomScale > 1.01 ? .pan : .dismiss
-	}
+		override func mouseDown(with event: NSEvent) {
+			guard imageView.image != nil else { return }
+			dragStartPoint = convert(event.locationInWindow, from: nil)
+			dragStartOffset = panOffset
+			dragMode = zoomScale > 1.01 ? .pan : .dismiss
+			invalidateCursorRects()
+		}
 
 	override func mouseDragged(with event: NSEvent) {
 		guard imageView.image != nil else { return }
@@ -1286,13 +1320,16 @@ private enum ImageViewerImageDecoder {
 		}
 	}
 
-	override func mouseUp(with event: NSEvent) {
-		guard imageView.image != nil else { return }
-		defer { dragMode = .none }
+		override func mouseUp(with event: NSEvent) {
+			guard imageView.image != nil else { return }
+			defer {
+				dragMode = .none
+				invalidateCursorRects()
+			}
 
-		switch dragMode {
-		case .dismiss:
-			let threshold = max(120, min(bounds.width, bounds.height) * 0.25)
+			switch dragMode {
+			case .dismiss:
+				let threshold = max(120, min(bounds.width, bounds.height) * 0.25)
 			let distance = hypot(panOffset.x, panOffset.y)
 			if distance >= threshold {
 				onClose?()
@@ -1307,10 +1344,10 @@ private enum ImageViewerImageDecoder {
 		}
 	}
 
-	private func setZoomScale(_ scale: CGFloat) {
-		let clamped = max(1, min(scale, maxZoomScale))
-		if abs(clamped - 1) < 0.02 {
-			zoomScale = 1
+		private func setZoomScale(_ scale: CGFloat) {
+			let clamped = max(1, min(scale, maxZoomScale))
+			if abs(clamped - 1) < 0.02 {
+				zoomScale = 1
 			panOffset = .zero
 			layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
 		} else {
@@ -1318,17 +1355,19 @@ private enum ImageViewerImageDecoder {
 			panOffset = clampedPanOffset(panOffset)
 		}
 
-		updateImageFrame()
-	}
+			updateImageFrame()
+			invalidateCursorRects()
+		}
 
-	private func resetInteractionState() {
-		zoomScale = 1
-		panOffset = .zero
+		private func resetInteractionState() {
+			zoomScale = 1
+			panOffset = .zero
 		dragMode = .none
-		dragStartPoint = .zero
-		dragStartOffset = .zero
-		layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
-	}
+			dragStartPoint = .zero
+			dragStartOffset = .zero
+			layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
+			invalidateCursorRects()
+		}
 
 	private func updateDismissBackground(for offset: CGPoint) {
 		let threshold = max(120, min(bounds.width, bounds.height) * 0.25)
