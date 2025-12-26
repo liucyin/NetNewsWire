@@ -22,6 +22,13 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Generate SecretKey.swift (empty)
+        run: |
+          set -euo pipefail
+
+          # SecretKey.swift is gitignored. Generate it from the .gyb template so the build can compile.
+          PROJECT_DIR="$GITHUB_WORKSPACE" bash buildscripts/updateSecrets.sh
+
       - name: Build NetNewsWire-iOS (Release, unsigned)
         run: |
           set -euo pipefail
