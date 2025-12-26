@@ -30,6 +30,7 @@ final class ArticleViewController: UIViewController {
 	@IBOutlet private var searchBar: ArticleSearchBar!
 	@IBOutlet private var searchBarBottomConstraint: NSLayoutConstraint!
 	private var defaultControls: [UIBarButtonItem]?
+	private var aiBarButtonItem: UIBarButtonItem?
 
 	private var pageViewController: UIPageViewController!
 
@@ -103,6 +104,7 @@ final class ArticleViewController: UIViewController {
 
 		articleExtractorButton.addTarget(self, action: #selector(toggleArticleExtractor(_:)), for: .touchUpInside)
 		toolbarItems?.insert(UIBarButtonItem(customView: articleExtractorButton), at: 6)
+		configureAIToolbarItem()
 
 		if let parentNavController = navigationController?.parent as? UINavigationController {
 			poppableDelegate.navigationController = parentNavController
@@ -211,6 +213,7 @@ final class ArticleViewController: UIViewController {
 			readBarButtonItem.isEnabled = false
 			starBarButtonItem.isEnabled = false
 			actionBarButtonItem.isEnabled = false
+			aiBarButtonItem?.isEnabled = false
 			return
 		}
 
@@ -223,6 +226,7 @@ final class ArticleViewController: UIViewController {
 		let permalinkPresent = article.preferredLink != nil
 		articleExtractorButton.isEnabled = permalinkPresent && !AppDefaults.shared.isDeveloperBuild
 		actionBarButtonItem.isEnabled = permalinkPresent
+		aiBarButtonItem?.isEnabled = true
 
 		if article.status.read {
 			readBarButtonItem.image = Assets.Images.circleOpen
@@ -352,6 +356,107 @@ final class ArticleViewController: UIViewController {
 
 	func setScrollPosition(isShowingExtractedArticle: Bool, articleWindowScrollY: Int) {
 		currentWebViewController?.setScrollPosition(isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
+	}
+
+	// MARK: - AI
+
+	private func configureAIToolbarItem() {
+		let summaryAction = UIAction(
+			title: NSLocalizedString("AI Summary", comment: "AI Summary menu item"),
+			image: UIImage(systemName: "sparkles")
+		) { [weak self] _ in
+			self?.runAISummary()
+		}
+
+		let translateAction = UIAction(
+			title: NSLocalizedString("AI Translate", comment: "AI Translate menu item"),
+			image: UIImage(systemName: "translate")
+		) { [weak self] _ in
+			self?.runAITranslate()
+		}
+
+		let menu = UIMenu(title: "", children: [summaryAction, translateAction])
+		let item = UIBarButtonItem(image: UIImage(systemName: "sparkles"), menu: menu)
+		item.accessibilityLabel = NSLocalizedString("AI", comment: "AI menu")
+		item.isEnabled = (article != nil)
+		self.aiBarButtonItem = item
+
+		guard var items = toolbarItems else {
+			return
+		}
+
+		if let actionIndex = items.firstIndex(of: actionBarButtonItem) {
+			items.insert(item, at: actionIndex)
+		} else {
+			items.append(item)
+		}
+		setToolbarItems(items, animated: false)
+	}
+
+	@MainActor private func runAISummary() {
+		guard let article else { return }
+		guard AISettings.shared.isEnabled else {
+			showAIDisabledAlert()
+			return
+		}
+		guard let webVC = currentWebViewController else { return }
+
+		let articleID = article.articleID
+		let text = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+
+		webVC.showAISummaryLoading()
+
+		Task { [weak self, weak webVC] in
+			do {
+				let summary = try await AIService.shared.summarize(text: text)
+				await MainActor.run {
+					guard let self, let webVC, webVC.article?.articleID == articleID else { return }
+					AICacheManager.shared.saveSummary(summary, for: articleID)
+					webVC.injectAISummary(summary)
+				}
+			} catch {
+				await MainActor.run { [weak self] in
+					self?.showAIError(error)
+				}
+			}
+		}
+	}
+
+	@MainActor private func runAITranslate() {
+		guard let article else { return }
+		guard AISettings.shared.isEnabled else {
+			showAIDisabledAlert()
+			return
+		}
+		guard let webVC = currentWebViewController else { return }
+
+		let articleID = article.articleID
+		AICacheManager.shared.saveTranslation([:], for: articleID)
+
+		Task { [weak self, weak webVC] in
+			guard let self, let webVC, webVC.article?.articleID == articleID else { return }
+			await webVC.performTranslation()
+		}
+	}
+
+	@MainActor private func showAIDisabledAlert() {
+		let alert = UIAlertController(
+			title: NSLocalizedString("AI Disabled", comment: "AI disabled alert title"),
+			message: NSLocalizedString("Enable AI in Settings → AI to use AI Summary and AI Translate.", comment: "AI disabled alert message"),
+			preferredStyle: .alert
+		)
+		alert.addAction(UIAlertAction(title: NSLocalizedString("OK", comment: "OK"), style: .default))
+		present(alert, animated: true)
+	}
+
+	@MainActor private func showAIError(_ error: Error) {
+		let alert = UIAlertController(
+			title: NSLocalizedString("AI Error", comment: "AI error alert title"),
+			message: error.localizedDescription,
+			preferredStyle: .alert
+		)
+		alert.addAction(UIAlertAction(title: NSLocalizedString("OK", comment: "OK"), style: .default))
+		present(alert, animated: true)
 	}
 }
 

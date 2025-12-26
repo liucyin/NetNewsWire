@@ -218,9 +218,14 @@ final class SettingsViewController: UITableViewController {
 				break
 			}
 		case 5:
+			tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
+			let controller = UIHostingController(rootView: AIPreferencesView())
+			controller.title = NSLocalizedString("AI", comment: "AI settings title")
+			self.navigationController?.pushViewController(controller, animated: true)
+		case 6:
 			let colorPalette = UIStoryboard.settings.instantiateController(ofType: ColorPaletteTableViewController.self)
 			self.navigationController?.pushViewController(colorPalette, animated: true)
-		case 6:
+		case 7:
 			switch indexPath.row {
 			case 0:
 				openURL(HelpURL.helpHome.rawValue)

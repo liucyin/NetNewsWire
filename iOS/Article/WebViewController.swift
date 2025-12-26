@@ -10,10 +10,12 @@ import UIKit
 @preconcurrency import WebKit
 import RSCore
 import RSWeb
+import RSMarkdown
 import Account
 import Articles
 import SafariServices
 import MessageUI
+import NaturalLanguage
 
 @MainActor protocol WebViewControllerDelegate: AnyObject {
 	func webViewController(_: WebViewController, articleExtractorButtonStateDidUpdate: ArticleExtractorButtonState)
@@ -370,6 +372,11 @@ extension WebViewController: WKNavigationDelegate {
 			if index != 0, let oldWebView = view as? PreloadedWebView {
 				oldWebView.removeFromSuperview()
 			}
+		}
+
+		Task { @MainActor [weak self] in
+			guard let self else { return }
+			await self.restoreAIStateIfNeeded(loadedWebView: webView)
 		}
 	}
 
@@ -890,4 +897,463 @@ extension WebViewController {
 		webView?.evaluateJavaScript("selectPreviousResult()")
 	}
 
+}
+
+// MARK: - AI
+
+extension WebViewController {
+
+	@MainActor func showAISummaryLoading() {
+		let js = """
+		(function() {
+			var summaryDiv = document.getElementById('aiSummary');
+			if (summaryDiv) {
+				summaryDiv.style.display = 'block';
+				summaryDiv.style.padding = '20px 24px';
+				summaryDiv.style.marginBottom = '20px';
+				summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
+				summaryDiv.style.color = 'var(--secondary-label-color)';
+				summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+				summaryDiv.style.boxSizing = 'border-box';
+
+				summaryDiv.innerHTML = `
+					<div style="display: flex; align-items: center; gap: 10px; opacity: 0.9;">
+						<span style="font-weight: 500; font-size: 13px; animation: pulse 1.5s infinite; color: var(--secondary-label-color);">Generating AI Summary...</span>
+					</div>
+					<style>
+						@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+					</style>
+				`;
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func injectAISummary(_ text: String) {
+		let html = RSMarkdown.markdownToHTML(text)
+		let jsonString = jsonEncodedString(html)
+
+		let js = """
+		(function() {
+			var summaryDiv = document.getElementById('aiSummary');
+			if (summaryDiv) {
+				summaryDiv.style.padding = '20px 24px';
+				summaryDiv.style.marginBottom = '24px';
+				summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
+				summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+				summaryDiv.style.fontSize = '1em';
+				summaryDiv.style.lineHeight = '1.6';
+				summaryDiv.style.color = 'var(--body-text-color)';
+				summaryDiv.style.boxSizing = 'border-box';
+
+				var htmlContent = \(jsonString);
+
+				var content = `
+				<div class="ai-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; cursor: pointer; user-select: none;" onclick="toggleAISummary(this)">
+					<div style="font-size: 0.85em; font-weight: 700; text-transform: uppercase; color: var(--secondary-label-color); letter-spacing: 0.05em;">AI Summary</div>
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--secondary-label-color); transition: transform 0.2s;">
+						<polyline points="6 9 12 15 18 9"></polyline>
+					</svg>
+				</div>
+				<div class="ai-content" style="display: block;">${htmlContent}</div>
+				<style>
+					.ai-content h1, .ai-content h2, .ai-content h3 { margin-top: 1.2em; margin-bottom: 0.6em; color: var(--header-text-color); font-weight: 600; }
+					.ai-content h3 { font-size: 1.1em; }
+					.ai-content p { margin-bottom: 1em; }
+					.ai-content ul, .ai-content ol { margin-bottom: 1em; padding-left: 1.5em; }
+					.ai-content li { margin-bottom: 0.5em; }
+					.ai-content blockquote { border-left: 3px solid var(--accent-color); padding-left: 1em; color: var(--secondary-label-color); margin-left: 0; }
+				</style>
+				`;
+
+				summaryDiv.innerHTML = content;
+				summaryDiv.style.display = 'block';
+
+				if (!window.toggleAISummary) {
+					window.toggleAISummary = function(header) {
+						var content = header.nextElementSibling;
+						var icon = header.querySelector('svg');
+						if (content.style.display === 'none') {
+							content.style.display = 'block';
+							icon.style.transform = 'rotate(0deg)';
+						} else {
+							content.style.display = 'none';
+							icon.style.transform = 'rotate(-90deg)';
+						}
+					};
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func injectTitleTranslation(_ text: String) {
+		let html = RSMarkdown.markdownToHTML(text)
+		let jsonHtml = jsonEncodedString(html)
+
+		let js = """
+		(function() {
+			var titleNode = document.querySelector('h1.article-title') || document.querySelector('h1');
+			if (titleNode) {
+				var htmlContent = \(jsonHtml);
+
+				var existing = titleNode.querySelector('.ai-title-translation');
+				if (existing) {
+					existing.innerHTML = htmlContent;
+				} else {
+					var div = document.createElement('div');
+					div.className = 'ai-title-translation';
+					div.style.color = 'var(--secondary-label-color)';
+					div.style.fontStyle = 'italic';
+					div.style.fontSize = '0.8em';
+					div.style.marginTop = '4px';
+					div.style.marginBottom = '8px';
+					div.innerHTML = htmlContent;
+					titleNode.appendChild(div);
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func injectTranslation(id: String, text: String) {
+		let html = RSMarkdown.markdownToHTML(text)
+		let jsonHtml = jsonEncodedString(html)
+		let jsonId = jsonEncodedString(id)
+
+		let js = """
+		(function() {
+			var node = document.getElementById(\(jsonId));
+			if (node) {
+				var htmlContent = \(jsonHtml);
+
+				var existing = node.nextElementSibling;
+				if (existing && existing.className == 'ai-translation') {
+					existing.style.display = 'block';
+					existing.innerHTML = htmlContent;
+					existing.setAttribute('data-ai-translation-state', 'success');
+				} else {
+					var div = document.createElement('div');
+					div.className = 'ai-translation';
+					div.setAttribute('data-ai-translation-state', 'success');
+					div.style.color = 'var(--secondary-label-color)';
+					div.style.fontStyle = 'italic';
+					div.style.marginTop = '6px';
+					div.style.marginBottom = '16px';
+					div.style.paddingLeft = '12px';
+					div.style.borderLeft = '3px solid var(--accent-color)';
+					div.style.lineHeight = '1.6';
+					div.innerHTML = htmlContent;
+					node.parentNode.insertBefore(div, node.nextSibling);
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func showTranslationLoading(for id: String) {
+		let jsonId = jsonEncodedString(id)
+		let js = """
+		(function() {
+			var node = document.getElementById(\(jsonId));
+			if (node) {
+				var loadingHTML = `
+					<div style="display: flex; align-items: center; gap: 8px; opacity: 0.9;">
+						<span style="font-size: 13px; animation: pulse 1.5s infinite; color: var(--secondary-label-color);">Translating...</span>
+					</div>
+				`;
+				loadingHTML += `<style>@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }</style>`;
+
+				var existing = node.nextElementSibling;
+				if (existing && existing.className == 'ai-translation') {
+					existing.style.display = 'block';
+					existing.innerHTML = loadingHTML;
+					existing.style.borderLeft = '3px solid var(--accent-color)';
+					existing.setAttribute('data-ai-translation-state', 'loading');
+				} else {
+					var div = document.createElement('div');
+					div.className = 'ai-translation';
+					div.setAttribute('data-ai-translation-state', 'loading');
+					div.style.color = 'var(--secondary-label-color)';
+					div.style.marginTop = '6px';
+					div.style.marginBottom = '16px';
+					div.style.paddingLeft = '12px';
+					div.style.borderLeft = '3px solid var(--accent-color)';
+					div.innerHTML = loadingHTML;
+					node.parentNode.insertBefore(div, node.nextSibling);
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func showTranslationError(for id: String, message: String) {
+		let jsonId = jsonEncodedString(id)
+		let jsonMsg = jsonEncodedString(message)
+
+		let js = """
+		(function() {
+			var node = document.getElementById(\(jsonId));
+			if (node) {
+				var errorHTML = `<div style="color: red; font-size: 0.9em;">⚠️ Translation Error: ` + \(jsonMsg) + `</div>`;
+
+				var existing = node.nextElementSibling;
+				if (existing && existing.className == 'ai-translation') {
+					existing.style.display = 'block';
+					existing.innerHTML = errorHTML;
+					existing.style.borderLeft = '3px solid red';
+					existing.setAttribute('data-ai-translation-state', 'error');
+				} else {
+					var div = document.createElement('div');
+					div.className = 'ai-translation';
+					div.setAttribute('data-ai-translation-state', 'error');
+					div.style.marginTop = '6px';
+					div.style.marginBottom = '16px';
+					div.style.paddingLeft = '12px';
+					div.style.borderLeft = '3px solid red';
+					div.innerHTML = errorHTML;
+					node.parentNode.insertBefore(div, node.nextSibling);
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func ensureStableIDs(force: Bool = false) async {
+		guard let webView else { return }
+
+		let js = """
+		(function() {
+			var summaryContainer = document.getElementById('aiSummary');
+			if (summaryContainer) {
+				var sNodes = summaryContainer.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+				for (var i = 0; i < sNodes.length; i++) {
+					var shouldAssign = \(force) || !sNodes[i].id || !sNodes[i].id.startsWith('ai-summary-node-');
+					if (shouldAssign) {
+						sNodes[i].id = 'ai-summary-node-' + i;
+					}
+				}
+			}
+
+			var allNodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+			var bodyIndex = 0;
+			for (var i = 0; i < allNodes.length; i++) {
+				var node = allNodes[i];
+				if (summaryContainer && summaryContainer.contains(node)) {
+					continue;
+				}
+
+				var shouldAssign = \(force) || !node.id || !node.id.startsWith('ai-body-node-');
+				if (shouldAssign) {
+					node.id = 'ai-body-node-' + bodyIndex;
+				}
+				bodyIndex++;
+			}
+		})();
+		"""
+
+		_ = try? await webView.evaluateJavaScript(js)
+	}
+
+	@MainActor func prepareForTranslation() async -> [String: String] {
+		await ensureStableIDs(force: true)
+		guard let webView else { return [:] }
+
+		let js = """
+		(function() {
+			var nodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+			var result = [];
+			var urlRegex = /^(https?:\\/\\/[^\\s]+)$/i;
+
+			for (var i = 0; i < nodes.length; i++) {
+				var node = nodes[i];
+				var text = node.innerText.trim();
+				if (text.length <= 5) continue;
+				if (urlRegex.test(text)) continue;
+
+				if (node.id && (node.id.startsWith('ai-node-') || node.id.startsWith('ai-summary-node-') || node.id.startsWith('ai-body-node-'))) {
+					result.push({id: node.id, text: text});
+				}
+			}
+			return result;
+		})();
+		"""
+
+		do {
+			guard let result = try await webView.evaluateJavaScript(js) as? [[String: Any]] else {
+				return [:]
+			}
+
+			var map = [String: String]()
+			for item in result {
+				if let id = item["id"] as? String, let text = item["text"] as? String {
+					map[id] = text
+				}
+			}
+			return map
+		} catch {
+			print("AI Translation Prep Error: \(error)")
+			return [:]
+		}
+	}
+
+	@MainActor func performTitleTranslation() async {
+		guard AISettings.shared.isEnabled else { return }
+		guard let article else { return }
+
+		let articleID = article.articleID
+		let title = article.title ?? ""
+		guard !title.isEmpty else { return }
+
+		let recognizer = NLLanguageRecognizer()
+		recognizer.processString(title)
+
+		guard let dominant = recognizer.dominantLanguage else { return }
+
+		let targetLang = AISettings.shared.outputLanguage
+		let targetIso = isoCode(for: targetLang)
+
+		guard !dominant.rawValue.lowercased().hasPrefix(targetIso) else { return }
+
+		do {
+			let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
+			guard self.article?.articleID == articleID else { return }
+			injectTitleTranslation(translated)
+		} catch {
+			print("Title Translation Error: \(error)")
+		}
+	}
+
+	@MainActor func performTranslation() async {
+		guard AISettings.shared.isEnabled else { return }
+		guard let article else { return }
+		let articleID = article.articleID
+
+		if AISettings.shared.autoTranslateTitles {
+			Task { await self.performTitleTranslation() }
+		}
+
+		let map = await prepareForTranslation()
+		let cached = AICacheManager.shared.getTranslation(for: articleID) ?? [:]
+		let itemsToTranslate = map.filter { cached[$0.key] == nil }
+
+		for id in itemsToTranslate.keys {
+			showTranslationLoading(for: id)
+		}
+
+		var translatedMap: [String: String] = [:]
+
+		await withTaskGroup(of: (String, String, Error?)?.self) { group in
+			for (id, text) in itemsToTranslate {
+				group.addTask {
+					do {
+						let target = await AISettings.shared.outputLanguage
+						let translation = try await AIService.shared.translate(text: text, targetLanguage: target)
+						return (id, translation, nil)
+					} catch {
+						return (id, "", error)
+					}
+				}
+			}
+
+			for await result in group {
+				guard let (id, translation, error) = result else { continue }
+				guard self.article?.articleID == articleID else { continue }
+
+				if let error {
+					showTranslationError(for: id, message: error.localizedDescription)
+				} else {
+					injectTranslation(id: id, text: translation)
+					translatedMap[id] = translation
+				}
+			}
+		}
+
+		if !translatedMap.isEmpty {
+			var finalMap = cached
+			finalMap.merge(translatedMap) { _, new in new }
+			AICacheManager.shared.saveTranslation(finalMap, for: articleID)
+		}
+	}
+
+	@MainActor fileprivate func restoreAIStateIfNeeded(loadedWebView: WKWebView) async {
+		guard let current = webView, current === loadedWebView else { return }
+		guard AISettings.shared.isEnabled, let article else { return }
+		let articleID = article.articleID
+
+		if let cachedSummary = AICacheManager.shared.getSummary(for: articleID) {
+			injectAISummary(cachedSummary)
+		}
+
+		await ensureStableIDs(force: true)
+
+		if let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID), !cachedTranslations.isEmpty {
+			for (id, text) in cachedTranslations {
+				injectTranslation(id: id, text: text)
+			}
+		}
+
+		let cachedTitle = AICacheManager.shared.getTitleTranslation(for: articleID)
+		if let cachedTitle {
+			injectTitleTranslation(cachedTitle)
+		}
+
+		if (AICacheManager.shared.getTranslation(for: articleID) != nil) && (cachedTitle != nil || !AISettings.shared.autoTranslateTitles) {
+			return
+		}
+
+		let autoTranslateBody = AISettings.shared.autoTranslate
+		let autoTranslateTitles = AISettings.shared.autoTranslateTitles
+		guard autoTranslateBody || autoTranslateTitles else { return }
+
+		var didTriggerFullTranslation = false
+
+		if autoTranslateBody && AICacheManager.shared.getTranslation(for: articleID) == nil {
+			let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+			if !textSample.isEmpty {
+				let sample = String(textSample.prefix(500))
+				let recognizer = NLLanguageRecognizer()
+				recognizer.processString(sample)
+
+				if let dominantLang = recognizer.dominantLanguage {
+					let targetLang = AISettings.shared.outputLanguage
+					let targetIso = isoCode(for: targetLang)
+					let detectedIso = dominantLang.rawValue
+
+					if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
+						await performTranslation()
+						didTriggerFullTranslation = true
+					}
+				}
+			}
+		}
+
+		if !didTriggerFullTranslation && autoTranslateTitles && cachedTitle == nil {
+			await performTitleTranslation()
+		}
+	}
+
+	private func isoCode(for languageName: String) -> String {
+		switch languageName {
+		case "English": return "en"
+		case "Chinese": return "zh"
+		case "Japanese": return "ja"
+		case "French": return "fr"
+		case "German": return "de"
+		case "Spanish": return "es"
+		case "Korean": return "ko"
+		case "Russian": return "ru"
+		default: return "en"
+		}
+	}
+
+	private func jsonEncodedString(_ value: String) -> String {
+		(try? String(data: JSONEncoder().encode(value), encoding: .utf8)) ?? "\"\""
+	}
 }
