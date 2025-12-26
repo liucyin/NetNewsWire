@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import Synchronization
 import RSCore
 
 public extension Notification.Name {

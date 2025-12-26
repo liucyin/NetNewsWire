@@ -7,9 +7,9 @@
 //
 
 import Foundation
-import Synchronization
 import os
 import SQLite3
+import RSCore
 import RSDatabaseObjC
 
 /// Manage a serial queue and a SQLite database.

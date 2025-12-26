@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import Synchronization
+import RSCore
 
 public final class DatabaseObjectCache: Sendable {
 	private let state = Mutex([String: DatabaseObject]())

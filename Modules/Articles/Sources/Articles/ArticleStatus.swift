@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import Synchronization
+import RSCore
 
 public final class ArticleStatus: Hashable, Sendable {
 	public enum Key: String, Sendable {

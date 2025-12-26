@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Synchronization
 
 public protocol CacheRecord: Sendable {
 	var dateCreated: Date { get }

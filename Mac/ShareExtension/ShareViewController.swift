@@ -8,7 +8,7 @@
 
 import Cocoa
 import UniformTypeIdentifiers
-import Synchronization
+import RSCore
 
 final class ShareViewController: NSViewController {
 	@IBOutlet var nameTextField: NSTextField!

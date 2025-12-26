@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import Synchronization
 
 /// Code to be run by MainThreadOperationQueue on @MainActor.
 ///

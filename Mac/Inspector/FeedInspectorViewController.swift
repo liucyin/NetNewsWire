@@ -8,7 +8,6 @@
 
 import AppKit
 import UserNotifications
-import Synchronization
 import Articles
 import Account
 

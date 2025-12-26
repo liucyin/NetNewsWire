@@ -7,7 +7,9 @@ wildcat_settings
 
 ## Build generated
 build/
+build_*/
 DerivedData/
+.build_*/
 
 ## Various settings
 *.pbxuser

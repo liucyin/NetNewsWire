@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import Synchronization
+import RSCore
 import RSWeb
 import Secrets
 

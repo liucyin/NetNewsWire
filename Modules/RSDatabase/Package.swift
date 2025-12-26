@@ -15,11 +15,12 @@ let package = Package(
 			targets: ["RSDatabaseObjC"]),
 	],
 	dependencies: [
+		.package(path: "../RSCore"),
 	],
 	targets: [
 		.target(
 			name: "RSDatabase",
-			dependencies: ["RSDatabaseObjC"],
+			dependencies: ["RSCore", "RSDatabaseObjC"],
 			swiftSettings: [
 				.enableUpcomingFeature("NonisolatedNonsendingByDefault"),
 				.enableUpcomingFeature("InferIsolatedConformances"),

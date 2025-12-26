@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import Synchronization
+import RSCore
 import RSDatabaseObjC
 
 // Implement a lookup table for a many-to-many relationship.
@@ -245,4 +245,3 @@ private extension DatabaseLookupTable {
 		objectIDsWithNoRelatedObjects.withLock { $0.subtract(objectIDs) }
 	}
 }
-

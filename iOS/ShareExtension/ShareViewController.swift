@@ -8,7 +8,6 @@
 
 import UIKit
 import MobileCoreServices
-import Synchronization
 import UniformTypeIdentifiers
 import Social
 import Account

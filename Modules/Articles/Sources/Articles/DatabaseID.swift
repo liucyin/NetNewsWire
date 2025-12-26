@@ -8,7 +8,6 @@
 
 import Foundation
 import RSCore
-import Synchronization
 
 private let databaseIDCache = Mutex([String: String]())
 
