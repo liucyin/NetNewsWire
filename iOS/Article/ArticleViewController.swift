@@ -177,7 +177,11 @@ final class ArticleViewController: UIViewController {
 
 	override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(true)
-		navigationController?.navigationBar.topItem?.subtitle = nil
+		if #available(iOS 26.0, *) {
+			navigationController?.navigationBar.topItem?.subtitle = nil
+		} else {
+			navigationController?.navigationBar.topItem?.prompt = nil
+		}
 		coordinator.isArticleViewControllerPending = false
 		searchBar.shouldBeginEditing = true
 	}

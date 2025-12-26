@@ -25,6 +25,7 @@ final class MainTimelineViewController: UITableViewController, UndoableCommandRu
 
 	private lazy var filterButton = UIBarButtonItem(image: Assets.Images.filter, style: .plain, target: self, action: #selector(toggleFilter(_:)))
 	private lazy var firstUnreadButton = UIBarButtonItem(image: Assets.Images.nextUnread, style: .plain, target: self, action: #selector(firstUnread(_:)))
+	private lazy var searchBarButtonItem = UIBarButtonItem(barButtonSystemItem: .search, target: self, action: #selector(beginSearch(_:)))
 
 	private lazy var dataSource = makeDataSource()
 	private let searchController = UISearchController(searchResultsController: nil)
@@ -175,7 +176,9 @@ final class MainTimelineViewController: UITableViewController, UndoableCommandRu
 
 		if traitCollection.userInterfaceIdiom == .pad {
 			searchController.searchBar.selectedScopeButtonIndex = 1
-			navigationItem.searchBarPlacementAllowsExternalIntegration = true
+			if #available(iOS 26.0, *) {
+				navigationItem.searchBarPlacementAllowsExternalIntegration = true
+			}
 		}
 		definesPresentationContext = true
 
@@ -206,7 +209,9 @@ final class MainTimelineViewController: UITableViewController, UndoableCommandRu
 		gesture.allowedScrollTypesMask = []
 
 		navigationItem.titleView = navigationBarTitleLabel
-		navigationItem.subtitleView = navigationBarSubtitleTitleLabel
+		if #available(iOS 26.0, *) {
+			navigationItem.subtitleView = navigationBarSubtitleTitleLabel
+		}
 	}
 
 	override func viewWillAppear(_ animated: Bool) {
@@ -345,10 +350,14 @@ final class MainTimelineViewController: UITableViewController, UndoableCommandRu
 	}
 
 	func updateNavigationBarSubtitle(_ text: String) {
-		if let label = navigationItem.subtitleView as? UILabel {
-			label.text = text
-			label.isUserInteractionEnabled = ((coordinator?.timelineFeed as? PseudoFeed) == nil)
-			label.sizeToFit()
+		if #available(iOS 26.0, *) {
+			if let label = navigationItem.subtitleView as? UILabel {
+				label.text = text
+				label.isUserInteractionEnabled = ((coordinator?.timelineFeed as? PseudoFeed) == nil)
+				label.sizeToFit()
+			}
+		} else {
+			navigationItem.prompt = text.isEmpty ? nil : text
 		}
 	}
 
@@ -734,6 +743,11 @@ extension MainTimelineViewController: UISearchBarDelegate {
 
 private extension MainTimelineViewController {
 
+	@objc func beginSearch(_ sender: Any?) {
+		searchController.isActive = true
+		searchController.searchBar.becomeFirstResponder()
+	}
+
 	func searchArticles(_ searchString: String, _ searchScope: SearchScope) {
 		assert(coordinator != nil)
 		coordinator?.searchArticles(searchString, searchScope)
@@ -742,7 +756,11 @@ private extension MainTimelineViewController {
 	func configureToolbar() {
 		if traitCollection.userInterfaceIdiom == .phone {
 			toolbarItems?.insert(.flexibleSpace(), at: 1)
-			toolbarItems?.insert(navigationItem.searchBarPlacementBarButtonItem, at: 2)
+			if #available(iOS 26.0, *) {
+				toolbarItems?.insert(navigationItem.searchBarPlacementBarButtonItem, at: 2)
+			} else {
+				toolbarItems?.insert(searchBarButtonItem, at: 2)
+			}
 		}
 	}
 
@@ -756,7 +774,11 @@ private extension MainTimelineViewController {
 		}
 
 		if isReadArticlesFiltered {
-			filterButton.style = .prominent
+			if #available(iOS 26.0, *) {
+				filterButton.style = .prominent
+			} else {
+				filterButton.style = .plain
+			}
 			filterButton.tintColor = Assets.Colors.primaryAccent
 			filterButton.accLabelText = NSLocalizedString("Selected - Filter Read Articles", comment: "Selected - Filter Read Articles")
 		} else {

@@ -612,6 +612,15 @@ struct FeedNode: Hashable, Sendable {
 	@objc func updateNavigationBarSubtitles(_ note: Notification?) {
 		let progress = AccountManager.shared.combinedRefreshProgress
 
+		func setFeedsSubtitle(_ text: String?) {
+			if #available(iOS 26.0, *) {
+				self.mainFeedCollectionViewController?.navigationItem.subtitle = text ?? ""
+			} else {
+				let trimmedText = text?.isEmpty == true ? nil : text
+				self.mainFeedCollectionViewController?.navigationItem.prompt = trimmedText
+			}
+		}
+
 		if progress.isComplete {
 			if let accountLastArticleFetchEndTime = AccountManager.shared.lastArticleFetchEndTime {
 				if Date.now > accountLastArticleFetchEndTime.addingTimeInterval(60) {
@@ -622,7 +631,7 @@ struct FeedNode: Hashable, Sendable {
 					let refreshText = NSString.localizedStringWithFormat(localizedRefreshText as NSString, refreshed) as String
 
 					// Update Feeds with Updated text
-					self.mainFeedCollectionViewController?.navigationItem.subtitle = refreshText
+					setFeedsSubtitle(refreshText)
 
 					// If unread count > 0, add unread string to timeline
 					if let _ = timelineFeed, timelineUnreadCount > 0 {
@@ -639,7 +648,8 @@ struct FeedNode: Hashable, Sendable {
 					}
 				} else {
 					// Use 'Updated Just Now' while <60s have passed since refresh.
-					self.mainFeedCollectionViewController?.navigationItem.subtitle = NSLocalizedString("Updated Just Now", comment: "Updated Just Now")
+					let refreshText = NSLocalizedString("Updated Just Now", comment: "Updated Just Now")
+					setFeedsSubtitle(refreshText)
 
 					// If unread count > 0, add unread string to timeline
 					if let _ = timelineFeed, timelineUnreadCount > 0 {
@@ -657,12 +667,12 @@ struct FeedNode: Hashable, Sendable {
 				}
 			}
 			else {
-				self.mainFeedCollectionViewController?.navigationItem.subtitle = ""
+				setFeedsSubtitle(nil)
 				// If unread count > 0, add unread string to timeline
 				if let _ = timelineFeed, timelineUnreadCount > 0 {
 					let localizedUnreadCount = NSLocalizedString("%i Unread", comment: "14 Unread")
-					let refreshTextWithUnreadCount = NSString.localizedStringWithFormat(localizedUnreadCount as NSString, timelineUnreadCount) as String
-					self.mainTimelineViewController?.updateNavigationBarSubtitle(refreshTextWithUnreadCount)
+					let unreadCountText = NSString.localizedStringWithFormat(localizedUnreadCount as NSString, timelineUnreadCount) as String
+					self.mainTimelineViewController?.updateNavigationBarSubtitle(unreadCountText)
 				} else {
 					// When unread count == 0, iPhone timeline displays Updated Just Now; iPad is blank
 					if UIDevice.current.userInterfaceIdiom == .phone {
@@ -674,7 +684,7 @@ struct FeedNode: Hashable, Sendable {
 			}
 		} else {
 			// Updating in progress, apply to both iPhone and iPad Feeds.
-			self.mainFeedCollectionViewController?.navigationItem.subtitle = NSLocalizedString("Updating...", comment: "Updating...")
+			setFeedsSubtitle(NSLocalizedString("Updating...", comment: "Updating..."))
 		}
 
 		scheduleNavigationBarSubtitleUpdate()

@@ -57,12 +57,16 @@ final class ModernTimelineSliderCell: UITableViewCell {
 			case .numberOfLines:
 				slider.minimumValue = 1
 				slider.maximumValue = 6
-				slider.trackConfiguration = .init(allowsTickValuesOnly: true, numberOfTicks: 6)
+				if #available(iOS 26.0, *) {
+					slider.trackConfiguration = .init(allowsTickValuesOnly: true, numberOfTicks: 6)
+				}
 				slider.value = Float(AppDefaults.shared.timelineNumberOfLines)
 			case .iconSize:
 				slider.minimumValue = 1
 				slider.maximumValue = 3
-				slider.trackConfiguration = .init(allowsTickValuesOnly: true, numberOfTicks: 3)
+				if #available(iOS 26.0, *) {
+					slider.trackConfiguration = .init(allowsTickValuesOnly: true, numberOfTicks: 3)
+				}
 				slider.value = Float(AppDefaults.shared.timelineIconSize.rawValue)
 			case .none:
 				return
@@ -80,9 +84,13 @@ final class ModernTimelineSliderCell: UITableViewCell {
 	@IBAction func sliderValueChanges(_ sender: Any) {
 		switch sliderConfiguration {
 		case .numberOfLines:
-			AppDefaults.shared.timelineNumberOfLines = Int(slider.value.rounded())
+			let value = slider.value.rounded()
+			slider.value = value
+			AppDefaults.shared.timelineNumberOfLines = Int(value)
 		case .iconSize:
-			guard let iconSize = IconSize(rawValue: Int(slider.value.rounded())) else { return }
+			let value = slider.value.rounded()
+			slider.value = value
+			guard let iconSize = IconSize(rawValue: Int(value)) else { return }
 			AppDefaults.shared.timelineIconSize = iconSize
 		case .none:
 			return

@@ -111,7 +111,14 @@ class MainFeedCollectionViewFolderCell: UICollectionViewCell {
 	}
 
 	override func updateConfiguration(using state: UICellConfigurationState) {
-		var backgroundConfig = UIBackgroundConfiguration.listCell().updated(for: state)
+		let baseBackgroundConfig: UIBackgroundConfiguration = {
+			if #available(iOS 18.0, *) {
+				return UIBackgroundConfiguration.listCell()
+			} else {
+				return UIBackgroundConfiguration.listPlainCell()
+			}
+		}()
+		var backgroundConfig = baseBackgroundConfig.updated(for: state)
 
 		switch (state.isHighlighted || state.isSelected || state.isFocused, traitCollection.userInterfaceIdiom) {
 		case (true, .pad):

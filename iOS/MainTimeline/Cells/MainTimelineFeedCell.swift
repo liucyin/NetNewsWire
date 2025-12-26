@@ -124,7 +124,14 @@ class MainTimelineFeedCell: UITableViewCell {
 	override func updateConfiguration(using state: UICellConfigurationState) {
 		super.updateConfiguration(using: state)
 
-		var backgroundConfig = UIBackgroundConfiguration.listCell().updated(for: state)
+		let baseBackgroundConfig: UIBackgroundConfiguration = {
+			if #available(iOS 18.0, *) {
+				return UIBackgroundConfiguration.listCell()
+			} else {
+				return UIBackgroundConfiguration.listPlainCell()
+			}
+		}()
+		var backgroundConfig = baseBackgroundConfig.updated(for: state)
 		backgroundConfig.cornerRadius = 20
 		if traitCollection.userInterfaceIdiom == .pad {
 			backgroundConfig.edgesAddingLayoutMarginsToBackgroundInsets = [.leading, .trailing]
