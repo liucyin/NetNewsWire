@@ -1211,15 +1211,20 @@ extension WebViewController {
 		let title = article.title ?? ""
 		guard !title.isEmpty else { return }
 
-		let recognizer = NLLanguageRecognizer()
-		recognizer.processString(title)
-
-		guard let dominant = recognizer.dominantLanguage else { return }
-
 		let targetLang = AISettings.shared.outputLanguage
-		let targetIso = isoCode(for: targetLang)
+		var shouldTranslate = AISettings.shared.translationIsRewriteMode
 
-		guard !dominant.rawValue.lowercased().hasPrefix(targetIso) else { return }
+		if !shouldTranslate {
+			let recognizer = NLLanguageRecognizer()
+			recognizer.processString(title)
+
+			guard let dominant = recognizer.dominantLanguage else { return }
+
+			let targetIso = isoCode(for: targetLang)
+			shouldTranslate = !dominant.rawValue.lowercased().hasPrefix(targetIso.lowercased())
+		}
+
+		guard shouldTranslate else { return }
 
 		do {
 			let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
@@ -1315,20 +1320,25 @@ extension WebViewController {
 		var didTriggerFullTranslation = false
 
 		if autoTranslateBody && AICacheManager.shared.getTranslation(for: articleID) == nil {
-			let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
-			if !textSample.isEmpty {
-				let sample = String(textSample.prefix(500))
-				let recognizer = NLLanguageRecognizer()
-				recognizer.processString(sample)
+			if AISettings.shared.translationIsRewriteMode {
+				await performTranslation()
+				didTriggerFullTranslation = true
+			} else {
+				let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+				if !textSample.isEmpty {
+					let sample = String(textSample.prefix(500))
+					let recognizer = NLLanguageRecognizer()
+					recognizer.processString(sample)
 
-				if let dominantLang = recognizer.dominantLanguage {
-					let targetLang = AISettings.shared.outputLanguage
-					let targetIso = isoCode(for: targetLang)
-					let detectedIso = dominantLang.rawValue
+					if let dominantLang = recognizer.dominantLanguage {
+						let targetLang = AISettings.shared.outputLanguage
+						let targetIso = isoCode(for: targetLang)
+						let detectedIso = dominantLang.rawValue
 
-					if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
-						await performTranslation()
-						didTriggerFullTranslation = true
+						if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
+							await performTranslation()
+							didTriggerFullTranslation = true
+						}
 					}
 				}
 			}

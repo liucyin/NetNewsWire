@@ -71,10 +71,12 @@ final class AISettings: ObservableObject {
     
     var summaryProfileID: UUID? {
         get {
-            if let str = defaults.string(forKey: Keys.aiSummaryProfileID), let uuid = UUID(uuidString: str) {
+            if let str = defaults.string(forKey: Keys.aiSummaryProfileID),
+               let uuid = UUID(uuidString: str),
+               profiles.contains(where: { $0.id == uuid }) {
                 return uuid
             }
-            return profiles.first?.id
+            return preferredDefaultProfileID()
         }
         set {
             defaults.set(newValue?.uuidString, forKey: Keys.aiSummaryProfileID)
@@ -84,10 +86,12 @@ final class AISettings: ObservableObject {
     
     var translationProfileID: UUID? {
         get {
-            if let str = defaults.string(forKey: Keys.aiTranslationProfileID), let uuid = UUID(uuidString: str) {
+            if let str = defaults.string(forKey: Keys.aiTranslationProfileID),
+               let uuid = UUID(uuidString: str),
+               profiles.contains(where: { $0.id == uuid }) {
                 return uuid
             }
-            return profiles.first?.id
+            return preferredDefaultProfileID()
         }
         set {
             defaults.set(newValue?.uuidString, forKey: Keys.aiTranslationProfileID)
@@ -97,8 +101,9 @@ final class AISettings: ObservableObject {
     
     init() {
         loadProfiles()
+        ensureProfileSelections()
     }
-    
+
     private func loadProfiles() {
         if let data = defaults.data(forKey: Keys.aiProfiles),
            let decoded = try? JSONDecoder().decode([AIProviderProfile].self, from: data),
@@ -129,6 +134,42 @@ final class AISettings: ObservableObject {
             self.translationProfileID = defaultProfile.id
         }
     }
+
+    private func ensureProfileSelections() {
+        guard !profiles.isEmpty else { return }
+
+        let preferredID = preferredDefaultProfileID()
+
+        if storedProfileID(forKey: Keys.aiSummaryProfileID) == nil {
+            summaryProfileID = preferredID
+        }
+
+        if storedProfileID(forKey: Keys.aiTranslationProfileID) == nil {
+            translationProfileID = preferredID
+        }
+    }
+
+    private func storedProfileID(forKey key: String) -> UUID? {
+        guard let stringValue = defaults.string(forKey: key), let uuid = UUID(uuidString: stringValue) else {
+            return nil
+        }
+        guard profiles.contains(where: { $0.id == uuid }) else {
+            return nil
+        }
+        return uuid
+    }
+
+    private func preferredDefaultProfileID() -> UUID? {
+        if let openAIByURL = profiles.first(where: { $0.baseURL.lowercased().contains("openai.com") }) {
+            return openAIByURL.id
+        }
+
+        if let openAIByName = profiles.first(where: { $0.name.lowercased().contains("openai") }) {
+            return openAIByName.id
+        }
+
+        return profiles.first?.id
+    }
     
     private func saveProfiles() {
         if let encoded = try? JSONEncoder().encode(profiles) {
@@ -148,11 +189,16 @@ final class AISettings: ObservableObject {
     
     func deleteProfile(at index: Int) {
         let profile = profiles[index]
+        let removedID = profile.id
+
+        let selectedSummaryID = storedProfileID(forKey: Keys.aiSummaryProfileID)
+        let selectedTranslationID = storedProfileID(forKey: Keys.aiTranslationProfileID)
+
         profiles.remove(at: index)
         
         // Reset selection if deleted
-        if summaryProfileID == profile.id { summaryProfileID = profiles.first?.id }
-        if translationProfileID == profile.id { translationProfileID = profiles.first?.id }
+        if selectedSummaryID == removedID { summaryProfileID = preferredDefaultProfileID() }
+        if selectedTranslationID == removedID { translationProfileID = preferredDefaultProfileID() }
     }
 
     // MARK: - Usage Helpers
@@ -257,6 +303,20 @@ You are a professional translator who needs to fluently translate text into %TAR
             defaults.set(newValue, forKey: Keys.aiTranslationPrompt)
             objectWillChange.send()
         }
+    }
+
+    var translationIsRewriteMode: Bool {
+        let language = outputLanguage.lowercased()
+        if language.contains("simplified english") || language.contains("a2") || language.contains("a2-b1") {
+            return true
+        }
+
+        let prompt = translationPrompt.lowercased()
+        if language == "english" && (prompt.contains("simplified english") || prompt.contains("a2") || prompt.contains("a2-b1") || prompt.contains("english learning")) {
+            return true
+        }
+
+        return false
     }
     
     func resetSummaryPrompt() {

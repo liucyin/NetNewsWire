@@ -173,33 +173,38 @@ final class DetailViewController: NSViewController, WKUIDelegate {
          let title = article.title ?? ""
          print("DEBUG: performTitleTranslation start for \(articleID.prefix(8))")
          guard !title.isEmpty else { return }
-         
-         let recognizer = NLLanguageRecognizer()
-         recognizer.processString(title)
-         
-         if let dominant = recognizer.dominantLanguage {
-             let targetLang = AISettings.shared.outputLanguage
-             let targetIso = isoCode(for: targetLang)
-             
-             if !dominant.rawValue.lowercased().hasPrefix(targetIso) {
-                 do {
-                     print("DEBUG: Calling fetchOrTranslateTitle for \(articleID.prefix(8))")
-                     // Use centralised fetch/task manager
-                     let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
-                     print("DEBUG: fetchOrTranslateTitle returned for \(articleID.prefix(8))")
-                     
-                     // Verify context matches the original request
-                     guard webVC.article?.articleID == articleID else {
-                         print("DEBUG: Context mismatch for \(articleID.prefix(8)), aborting injection")
-                         return 
-                     }
-                     
-                     print("DEBUG: Injecting translated title for \(articleID.prefix(8))")
-                     webVC.injectTitleTranslation(translated)
-                 } catch {
-                     print("Title Translation Error: \(error)")
-                 }
+
+         let targetLang = AISettings.shared.outputLanguage
+
+         var shouldTranslate = AISettings.shared.translationIsRewriteMode
+         if !shouldTranslate {
+             let recognizer = NLLanguageRecognizer()
+             recognizer.processString(title)
+
+             if let dominant = recognizer.dominantLanguage {
+                 let targetIso = isoCode(for: targetLang)
+                 shouldTranslate = !dominant.rawValue.lowercased().hasPrefix(targetIso.lowercased())
              }
+         }
+
+         guard shouldTranslate else { return }
+
+         do {
+             print("DEBUG: Calling fetchOrTranslateTitle for \(articleID.prefix(8))")
+             // Use centralised fetch/task manager
+             let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
+             print("DEBUG: fetchOrTranslateTitle returned for \(articleID.prefix(8))")
+
+             // Verify context matches the original request
+             guard webVC.article?.articleID == articleID else {
+                 print("DEBUG: Context mismatch for \(articleID.prefix(8)), aborting injection")
+                 return
+             }
+
+             print("DEBUG: Injecting translated title for \(articleID.prefix(8))")
+             webVC.injectTitleTranslation(translated)
+         } catch {
+             print("Title Translation Error: \(error)")
          }
     }
 
@@ -317,26 +322,31 @@ extension DetailViewController: DetailWebViewControllerDelegate {
             var didTriggerFullTranslation = false
 
             if autoTranslateBody && cachedTranslations == nil {
-                // Use article content (summary or text) for language detection
-                let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
-                if !textSample.isEmpty {
-                    // Simple heuristic: Take first 500 chars for detection
-                    let sample = String(textSample.prefix(500))
-                    let recognizer = NLLanguageRecognizer()
-                    recognizer.processString(sample)
-                    
-                    if let dominantLang = recognizer.dominantLanguage {
-                        let targetLang = AISettings.shared.outputLanguage
-                        let targetIso = isoCode(for: targetLang)
-                        let detectedIso = dominantLang.rawValue
-                        
-                        print("AI Auto-Translate: Detected \(detectedIso), Target \(targetIso) (\(targetLang))")
-                        
-                        // Check if detected starts with target (e.g. en-US starts with en)
-                        if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
-                            print("AI Auto-Translate: Triggering translation...")
-                            await performTranslation()
-                            didTriggerFullTranslation = true
+                if AISettings.shared.translationIsRewriteMode {
+                    await performTranslation()
+                    didTriggerFullTranslation = true
+                } else {
+                    // Use article content (summary or text) for language detection
+                    let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+                    if !textSample.isEmpty {
+                        // Simple heuristic: Take first 500 chars for detection
+                        let sample = String(textSample.prefix(500))
+                        let recognizer = NLLanguageRecognizer()
+                        recognizer.processString(sample)
+
+                        if let dominantLang = recognizer.dominantLanguage {
+                            let targetLang = AISettings.shared.outputLanguage
+                            let targetIso = isoCode(for: targetLang)
+                            let detectedIso = dominantLang.rawValue
+
+                            print("AI Auto-Translate: Detected \(detectedIso), Target \(targetIso) (\(targetLang))")
+
+                            // Check if detected starts with target (e.g. en-US starts with en)
+                            if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
+                                print("AI Auto-Translate: Triggering translation...")
+                                await performTranslation()
+                                didTriggerFullTranslation = true
+                            }
                         }
                     }
                 }
