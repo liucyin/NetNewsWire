@@ -11,15 +11,20 @@ import Foundation
 struct WidgetDataDecoder {
 
 	static func decodeWidgetData() throws -> WidgetData {
-		let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as! String
-		let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
-		let dataURL = containerURL?.appendingPathComponent("widget-data.json")
-		if FileManager.default.fileExists(atPath: dataURL!.path) {
-			let decodedWidgetData = try JSONDecoder().decode(WidgetData.self, from: Data(contentsOf: dataURL!))
-			return decodedWidgetData
-		} else {
+		guard let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as? String,
+			  !appGroup.isEmpty,
+			  !appGroup.contains("$("),
+			  let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
 			return WidgetData(currentUnreadCount: 0, currentTodayCount: 0, currentStarredCount: 0, unreadArticles: [], starredArticles: [], todayArticles: [], lastUpdateTime: Date())
 		}
+
+		let dataURL = containerURL.appendingPathComponent("widget-data.json")
+		guard FileManager.default.fileExists(atPath: dataURL.path) else {
+			return WidgetData(currentUnreadCount: 0, currentTodayCount: 0, currentStarredCount: 0, unreadArticles: [], starredArticles: [], todayArticles: [], lastUpdateTime: Date())
+		}
+
+		let decodedWidgetData = try JSONDecoder().decode(WidgetData.self, from: Data(contentsOf: dataURL))
+		return decodedWidgetData
 	}
 
 	static func sampleData() -> WidgetData {

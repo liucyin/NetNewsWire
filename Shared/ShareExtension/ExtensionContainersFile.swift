@@ -17,11 +17,23 @@ import Account
 
 	static private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "ExtensionContainersFile")
 
-	private static var filePath: String = {
-		let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as! String
-		let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
-		return containerURL!.appendingPathComponent("extension_containers.plist").path
-	}()
+	private static var fileURL: URL? {
+		guard let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as? String,
+			  !appGroup.isEmpty,
+			  !appGroup.contains("$(") else {
+			return nil
+		}
+
+		guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+			return nil
+		}
+
+		return containerURL.appendingPathComponent("extension_containers.plist")
+	}
+
+	private static var filePath: String? {
+		fileURL?.path
+	}
 
 	private var isActive = false
 	private var isDirty = false {
@@ -36,9 +48,15 @@ import Account
 			assertionFailure("start() called when already active")
 			return
 		}
+
+		guard let filePath = ExtensionContainersFile.filePath else {
+			Self.logger.error("Extension containers shared file unavailable (missing App Group entitlement or invalid AppGroup key).")
+			return
+		}
+
 		isActive = true
 
-		if !FileManager.default.fileExists(atPath: ExtensionContainersFile.filePath) {
+		if !FileManager.default.fileExists(atPath: filePath) {
 			save()
 		}
 
@@ -50,9 +68,13 @@ import Account
 
 	/// Reads and decodes the shared plist file.
 	static func read() -> ExtensionContainers? {
+		guard let fileURL = ExtensionContainersFile.fileURL else {
+			Self.logger.error("Read failed: shared file unavailable (missing App Group entitlement or invalid AppGroup key).")
+			return nil
+		}
+
 		let errorPointer: NSErrorPointer = nil
 		let fileCoordinator = NSFileCoordinator()
-		let fileURL = URL(fileURLWithPath: ExtensionContainersFile.filePath)
 		var extensionContainers: ExtensionContainers? = nil
 
 		fileCoordinator.coordinate(readingItemAt: fileURL, options: [], error: errorPointer, byAccessor: { readURL in
@@ -89,12 +111,16 @@ import Account
 	}
 
 	func save() {
+		guard let fileURL = ExtensionContainersFile.fileURL else {
+			Self.logger.error("Save failed: shared file unavailable (missing App Group entitlement or invalid AppGroup key).")
+			return
+		}
+
 		let encoder = PropertyListEncoder()
 		encoder.outputFormat = .binary
 
 		let errorPointer: NSErrorPointer = nil
 		let fileCoordinator = NSFileCoordinator()
-		let fileURL = URL(fileURLWithPath: ExtensionContainersFile.filePath)
 
 		fileCoordinator.coordinate(writingItemAt: fileURL, options: [], error: errorPointer, byAccessor: { writeURL in
 			do {

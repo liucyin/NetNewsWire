@@ -40,9 +40,18 @@ final class AppDefaults: Sendable {
 	private init() {}
 
 	nonisolated(unsafe) static let store: UserDefaults = {
-		let appIdentifierPrefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as! String
-		let suiteName = "\(appIdentifierPrefix)group.\(Bundle.main.bundleIdentifier!)"
-		return UserDefaults.init(suiteName: suiteName)!
+		let bundleIdentifier = Bundle.main.bundleIdentifier ?? "NetNewsWire"
+
+		let rawPrefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as? String
+		let prefix: String?
+		if let rawPrefix, !rawPrefix.isEmpty, !rawPrefix.contains("$(") {
+			prefix = rawPrefix
+		} else {
+			prefix = nil
+		}
+
+		let suiteName = "\(prefix ?? "")group.\(bundleIdentifier)"
+		return UserDefaults(suiteName: suiteName) ?? .standard
 	}()
 
 	struct Key {

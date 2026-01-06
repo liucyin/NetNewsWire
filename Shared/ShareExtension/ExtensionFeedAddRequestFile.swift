@@ -16,11 +16,19 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 
 	static private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "ExtensionFeedAddRequestFile")
 
-	private static let filePath: String = {
-		let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as! String
-		let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
-		return containerURL!.appendingPathComponent("extension_feed_add_request.plist").path
-	}()
+	private static var fileURL: URL? {
+		guard let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as? String,
+			  !appGroup.isEmpty,
+			  !appGroup.contains("$(") else {
+			return nil
+		}
+
+		guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+			return nil
+		}
+
+		return containerURL.appendingPathComponent("extension_feed_add_request.plist")
+	}
 
 	private let operationQueue = {
 		let queue = OperationQueue()
@@ -29,7 +37,7 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 	}()
 
 	var presentedItemURL: URL? {
-		URL(fileURLWithPath: ExtensionFeedAddRequestFile.filePath)
+		ExtensionFeedAddRequestFile.fileURL
 	}
 
 	var presentedItemOperationQueue: OperationQueue {
@@ -39,6 +47,11 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 	private let didStart = Mutex(false)
 
 	func start() {
+		guard ExtensionFeedAddRequestFile.fileURL != nil else {
+			Self.logger.error("Start skipped: shared file unavailable (missing App Group entitlement or invalid AppGroup key).")
+			return
+		}
+
 		var shouldBail = false
 		didStart.withLock { didStart in
 			if didStart {
@@ -67,9 +80,15 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 	}
 
 	func resume() {
-		didStart.withLock { didStart in
-			assert(didStart)
+		guard ExtensionFeedAddRequestFile.fileURL != nil else {
+			return
 		}
+
+		var started = false
+		didStart.withLock { didStart in
+			started = didStart
+		}
+		guard started else { return }
 
 		NSFileCoordinator.addFilePresenter(self)
 		Task { @MainActor in
@@ -78,13 +97,20 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 	}
 
 	func suspend() {
+		var started = false
 		didStart.withLock { didStart in
-			assert(didStart)
+			started = didStart
 		}
+		guard started else { return }
+
 		NSFileCoordinator.removeFilePresenter(self)
 	}
 
 	static func save(_ feedAddRequest: ExtensionFeedAddRequest) {
+		guard let fileURL = ExtensionFeedAddRequestFile.fileURL else {
+			Self.logger.error("Save skipped: shared file unavailable (missing App Group entitlement or invalid AppGroup key).")
+			return
+		}
 
 		let decoder = PropertyListDecoder()
 		let encoder = PropertyListEncoder()
@@ -92,7 +118,6 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 
 		let errorPointer: NSErrorPointer = nil
 		let fileCoordinator = NSFileCoordinator()
-		let fileURL = URL(fileURLWithPath: ExtensionFeedAddRequestFile.filePath)
 
 		fileCoordinator.coordinate(writingItemAt: fileURL, options: [.forMerging], error: errorPointer, byAccessor: { url in
 			do {
@@ -124,6 +149,9 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 @MainActor private extension ExtensionFeedAddRequestFile {
 
 	func process() {
+		guard let fileURL = ExtensionFeedAddRequestFile.fileURL else {
+			return
+		}
 
 		let decoder = PropertyListDecoder()
 		let encoder = PropertyListEncoder()
@@ -131,7 +159,6 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 
 		let errorPointer: NSErrorPointer = nil
 		let fileCoordinator = NSFileCoordinator(filePresenter: self)
-		let fileURL = URL(fileURLWithPath: ExtensionFeedAddRequestFile.filePath)
 
 		var requests: [ExtensionFeedAddRequest]? = nil
 

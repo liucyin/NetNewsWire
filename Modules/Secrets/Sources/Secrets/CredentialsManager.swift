@@ -14,7 +14,11 @@ public struct CredentialsManager {
 		guard let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as? String else {
 			return nil
 		}
-		let appIdentifierPrefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as! String
+		guard let appIdentifierPrefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as? String,
+			  !appIdentifierPrefix.isEmpty,
+			  !appIdentifierPrefix.contains("$(") else {
+			return nil
+		}
 		let appGroupSuffix = appGroup.suffix(appGroup.count - 6)
 		return "\(appIdentifierPrefix)\(appGroupSuffix)"
 	}()
