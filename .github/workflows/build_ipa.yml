@@ -3,6 +3,8 @@ name: Build NetNewsWire iOS IPA
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "ios-v*"
 
