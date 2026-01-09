@@ -27,6 +27,7 @@ final class WebViewController: UIViewController {
 		static let imageWasClicked = "imageWasClicked"
 		static let imageWasShown = "imageWasShown"
 		static let showFeedInspector = "showFeedInspector"
+		static let requestTranslation = "requestTranslation"
 	}
 
 	private var topShowBarsView: UIView!
@@ -39,6 +40,12 @@ final class WebViewController: UIViewController {
 	}
 
 	private lazy var contextMenuInteraction = UIContextMenuInteraction(delegate: self)
+	private lazy var paragraphTranslationTapRecognizer: UITapGestureRecognizer = {
+		let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleParagraphTranslationTap(_:)))
+		recognizer.cancelsTouchesInView = false
+		recognizer.delegate = self
+		return recognizer
+	}()
 	private var isFullScreenAvailable: Bool {
 		return AppDefaults.shared.articleFullscreenAvailable && traitCollection.userInterfaceIdiom == .phone && coordinator.isRootSplitCollapsed
 	}
@@ -94,6 +101,21 @@ final class WebViewController: UIViewController {
 		configureBottomShowBarsView()
 
 		loadWebView()
+	}
+
+	@objc private func handleParagraphTranslationTap(_ recognizer: UITapGestureRecognizer) {
+		guard recognizer.state == .ended else { return }
+		guard AISettings.shared.isEnabled, AISettings.shared.hoverTranslationEnabled else { return }
+		guard let webView else { return }
+		guard article != nil else { return }
+
+		let location = recognizer.location(in: webView)
+		Task { @MainActor [weak self] in
+			guard let self else { return }
+			await self.ensureStableIDs(force: false)
+			await self.injectParagraphTranslationListenerIfNeeded()
+			self.triggerParagraphTranslation(at: location)
+		}
 	}
 
 	// MARK: Notifications
@@ -294,6 +316,24 @@ final class WebViewController: UIViewController {
 	}
 }
 
+extension WebViewController: UIGestureRecognizerDelegate {
+	func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+		guard gestureRecognizer === paragraphTranslationTapRecognizer else {
+			return true
+		}
+
+		guard AISettings.shared.isEnabled, AISettings.shared.hoverTranslationEnabled else {
+			return false
+		}
+
+		return true
+	}
+
+	func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+		true
+	}
+}
+
 // MARK: ArticleExtractorDelegate
 
 extension WebViewController: ArticleExtractorDelegate {
@@ -473,6 +513,15 @@ extension WebViewController: WKScriptMessageHandler {
 			if let feed = article?.feed {
 				coordinator.showFeedInspector(for: feed)
 			}
+		case MessageName.requestTranslation:
+			guard let dict = message.body as? [String: Any],
+				  let id = dict["id"] as? String,
+				  let text = dict["text"] as? String else {
+				return
+			}
+			Task { @MainActor [weak self] in
+				await self?.requestTranslation(id: id, text: text)
+			}
 		default:
 			return
 		}
@@ -574,11 +623,17 @@ private extension WebViewController {
 				webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.imageWasClicked)
 				webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.imageWasShown)
 				webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.showFeedInspector)
+				webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.requestTranslation)
 
 				// Add handlers
 				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasClicked)
 				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasShown)
 				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.showFeedInspector)
+				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.requestTranslation)
+
+				if webView.gestureRecognizers?.contains(self.paragraphTranslationTapRecognizer) != true {
+					webView.addGestureRecognizer(self.paragraphTranslationTapRecognizer)
+				}
 
 				self.renderPage(webView)
 			}
@@ -903,6 +958,35 @@ extension WebViewController {
 
 extension WebViewController {
 
+	@MainActor private func requestTranslation(id: String, text: String) async {
+		guard AISettings.shared.isEnabled else { return }
+		guard let article else { return }
+		let articleID = article.articleID
+
+		if let cached = AICacheManager.shared.getTranslation(for: articleID),
+		   let cachedTranslation = cached[id] {
+			injectTranslation(id: id, text: cachedTranslation)
+			return
+		}
+
+		showTranslationLoading(for: id)
+
+		do {
+			let targetLanguage = AISettings.shared.outputLanguage
+			let translation = try await AIService.shared.translate(text: text, targetLanguage: targetLanguage)
+			guard self.article?.articleID == articleID else { return }
+
+			injectTranslation(id: id, text: translation)
+
+			var updated = AICacheManager.shared.getTranslation(for: articleID) ?? [:]
+			updated[id] = translation
+			AICacheManager.shared.saveTranslation(updated, for: articleID)
+		} catch {
+			guard self.article?.articleID == articleID else { return }
+			showTranslationError(for: id, message: error.localizedDescription)
+		}
+	}
+
 	@MainActor func showAISummaryLoading() {
 		let js = """
 		(function() {
@@ -1159,6 +1243,131 @@ extension WebViewController {
 		"""
 
 		_ = try? await webView.evaluateJavaScript(js)
+	}
+
+	@MainActor private func injectParagraphTranslationListenerIfNeeded() async {
+		guard let webView else { return }
+
+		let js = """
+		(function() {
+			if (window.__nnwParagraphTranslationInstalled) {
+				return;
+			}
+			window.__nnwParagraphTranslationInstalled = true;
+
+			var urlRegex = /^(https?:\\/\\/[^\\s]+)$/i;
+
+			function findActionableNode(start) {
+				if (!start) {
+					return null;
+				}
+
+				if (start.closest) {
+					// Don't hijack taps on links/images.
+					if (start.closest('a') || start.closest('img')) {
+						return null;
+					}
+
+					// If tapping on an injected translation block, map back to its source node.
+					var translation = start.closest('.ai-translation');
+					if (translation && translation.previousElementSibling) {
+						return translation.previousElementSibling;
+					}
+				}
+
+				var node = start;
+				while (node && node !== document.body) {
+					var tag = (node.tagName || '').toLowerCase();
+					if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
+						return node;
+					}
+					node = node.parentElement;
+				}
+				return null;
+			}
+
+			function triggerAction(node) {
+				if (!node) {
+					return;
+				}
+				if (!node.id) {
+					node.id = 'ai-hover-' + Math.random().toString(36).substr(2, 9);
+				}
+
+				var next = node.nextElementSibling;
+				if (next && next.classList.contains('ai-translation')) {
+					var state = (next.getAttribute('data-ai-translation-state') || '').toLowerCase();
+					if (state === 'loading') {
+						return;
+					}
+					if (state === 'error') {
+						var last = parseInt(node.getAttribute('data-ai-translation-last-request-at') || '0', 10);
+						var now = Date.now();
+						if (now - last < 500) {
+							return;
+						}
+						node.setAttribute('data-ai-translation-last-request-at', String(now));
+						var text = node.innerText.trim();
+						if (text.length > 5 && !urlRegex.test(text)) {
+							window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+						}
+						return;
+					}
+
+					if (next.style.display === 'none') {
+						next.style.display = 'block';
+					} else {
+						next.style.display = 'none';
+					}
+					return;
+				}
+
+				var text = node.innerText.trim();
+				if (text.length <= 5) {
+					return;
+				}
+				if (urlRegex.test(text)) {
+					return;
+				}
+
+				var last = parseInt(node.getAttribute('data-ai-translation-last-request-at') || '0', 10);
+				var now = Date.now();
+				if (now - last < 500) {
+					return;
+				}
+				node.setAttribute('data-ai-translation-last-request-at', String(now));
+				window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+			}
+
+			window.triggerHoverActionAt = function(x, y) {
+				try {
+					var actionable = findActionableNode(document.elementFromPoint(x, y));
+					if (actionable) {
+						triggerAction(actionable);
+					}
+				} catch (e) {
+					// ignore
+				}
+			};
+		})();
+		"""
+
+		_ = try? await webView.evaluateJavaScript(js)
+	}
+
+	@MainActor private func triggerParagraphTranslation(at location: CGPoint) {
+		guard let webView else { return }
+
+		let x = Double(location.x)
+		let y = Double(location.y)
+		let js = """
+		(function() {
+			if (window.triggerHoverActionAt) {
+				window.triggerHoverActionAt(\(x), \(y));
+			}
+		})();
+		"""
+		webView.evaluateJavaScript(js)
 	}
 
 	@MainActor func prepareForTranslation() async -> [String: String] {

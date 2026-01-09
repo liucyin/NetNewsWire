@@ -10,14 +10,22 @@ import Foundation
 
 final class MainFeedRowIdentifier: NSObject, NSCopying {
 
-	var indexPath: IndexPath
+	let indexPath: IndexPath
 
 	init(indexPath: IndexPath) {
 		self.indexPath = indexPath
 	}
 
 	func copy(with zone: NSZone? = nil) -> Any {
-		return self
+		self
 	}
 
+	override func isEqual(_ object: Any?) -> Bool {
+		guard let other = object as? MainFeedRowIdentifier else { return false }
+		return indexPath == other.indexPath
+	}
+
+	override var hash: Int {
+		indexPath.hashValue
+	}
 }
