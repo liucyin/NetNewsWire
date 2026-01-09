@@ -31,6 +31,11 @@ final class AISettings: ObservableObject {
         case translation
     }
 
+    enum ParagraphTranslationTrigger: String, CaseIterable {
+        case singleTap
+        case doubleTap
+    }
+
     struct Keys {
         static let aiEnabled = "aiEnabled"
         static let aiProfiles = "aiProfiles"
@@ -44,6 +49,7 @@ final class AISettings: ObservableObject {
         static let aiTranslationPrompt = "aiTranslationPrompt"
         static let aiHoverModifier = "aiHoverModifier"
         static let aiHoverTranslationEnabled = "aiHoverTranslationEnabled"
+        static let aiParagraphTranslationTrigger = "aiParagraphTranslationTrigger"
         
         // Legacy keys for migration
         static let aiProvider = "aiProvider"
@@ -257,6 +263,17 @@ final class AISettings: ObservableObject {
         get { defaults.object(forKey: Keys.aiHoverTranslationEnabled) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Keys.aiHoverTranslationEnabled)
+            objectWillChange.send()
+        }
+    }
+
+    var paragraphTranslationTrigger: ParagraphTranslationTrigger {
+        get {
+            let rawValue = defaults.string(forKey: Keys.aiParagraphTranslationTrigger) ?? ParagraphTranslationTrigger.doubleTap.rawValue
+            return ParagraphTranslationTrigger(rawValue: rawValue) ?? .doubleTap
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Keys.aiParagraphTranslationTrigger)
             objectWillChange.send()
         }
     }

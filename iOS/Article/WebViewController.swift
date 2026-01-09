@@ -40,8 +40,16 @@ final class WebViewController: UIViewController {
 	}
 
 	private lazy var contextMenuInteraction = UIContextMenuInteraction(delegate: self)
-	private lazy var paragraphTranslationTapRecognizer: UITapGestureRecognizer = {
+	private lazy var paragraphTranslationSingleTapRecognizer: UITapGestureRecognizer = {
 		let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleParagraphTranslationTap(_:)))
+		recognizer.numberOfTapsRequired = 1
+		recognizer.cancelsTouchesInView = false
+		recognizer.delegate = self
+		return recognizer
+	}()
+	private lazy var paragraphTranslationDoubleTapRecognizer: UITapGestureRecognizer = {
+		let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleParagraphTranslationTap(_:)))
+		recognizer.numberOfTapsRequired = 2
 		recognizer.cancelsTouchesInView = false
 		recognizer.delegate = self
 		return recognizer
@@ -100,7 +108,28 @@ final class WebViewController: UIViewController {
 		configureTopShowBarsView()
 		configureBottomShowBarsView()
 
+		paragraphTranslationSingleTapRecognizer.require(toFail: paragraphTranslationDoubleTapRecognizer)
+		updateParagraphTranslationGestureRecognizers()
+
 		loadWebView()
+	}
+
+	override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+		updateParagraphTranslationGestureRecognizers()
+	}
+
+	@MainActor private func updateParagraphTranslationGestureRecognizers() {
+		let enabled = AISettings.shared.isEnabled && AISettings.shared.hoverTranslationEnabled
+
+		switch AISettings.shared.paragraphTranslationTrigger {
+		case .singleTap:
+			paragraphTranslationSingleTapRecognizer.isEnabled = enabled
+			paragraphTranslationDoubleTapRecognizer.isEnabled = false
+		case .doubleTap:
+			paragraphTranslationSingleTapRecognizer.isEnabled = false
+			paragraphTranslationDoubleTapRecognizer.isEnabled = enabled
+		}
 	}
 
 	@objc private func handleParagraphTranslationTap(_ recognizer: UITapGestureRecognizer) {
@@ -108,6 +137,15 @@ final class WebViewController: UIViewController {
 		guard AISettings.shared.isEnabled, AISettings.shared.hoverTranslationEnabled else { return }
 		guard let webView else { return }
 		guard article != nil else { return }
+
+		let isSingle = recognizer === paragraphTranslationSingleTapRecognizer
+		let isDouble = recognizer === paragraphTranslationDoubleTapRecognizer
+		switch AISettings.shared.paragraphTranslationTrigger {
+		case .singleTap:
+			guard isSingle else { return }
+		case .doubleTap:
+			guard isDouble else { return }
+		}
 
 		let location = recognizer.location(in: webView)
 		Task { @MainActor [weak self] in
@@ -318,7 +356,7 @@ final class WebViewController: UIViewController {
 
 extension WebViewController: UIGestureRecognizerDelegate {
 	func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-		guard gestureRecognizer === paragraphTranslationTapRecognizer else {
+		guard gestureRecognizer === paragraphTranslationSingleTapRecognizer || gestureRecognizer === paragraphTranslationDoubleTapRecognizer else {
 			return true
 		}
 
@@ -326,7 +364,12 @@ extension WebViewController: UIGestureRecognizerDelegate {
 			return false
 		}
 
-		return true
+		switch AISettings.shared.paragraphTranslationTrigger {
+		case .singleTap:
+			return gestureRecognizer === paragraphTranslationSingleTapRecognizer
+		case .doubleTap:
+			return gestureRecognizer === paragraphTranslationDoubleTapRecognizer
+		}
 	}
 
 	func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -631,9 +674,13 @@ private extension WebViewController {
 				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.showFeedInspector)
 				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.requestTranslation)
 
-				if webView.gestureRecognizers?.contains(self.paragraphTranslationTapRecognizer) != true {
-					webView.addGestureRecognizer(self.paragraphTranslationTapRecognizer)
+				if webView.gestureRecognizers?.contains(self.paragraphTranslationSingleTapRecognizer) != true {
+					webView.addGestureRecognizer(self.paragraphTranslationSingleTapRecognizer)
 				}
+				if webView.gestureRecognizers?.contains(self.paragraphTranslationDoubleTapRecognizer) != true {
+					webView.addGestureRecognizer(self.paragraphTranslationDoubleTapRecognizer)
+				}
+				self.updateParagraphTranslationGestureRecognizers()
 
 				self.renderPage(webView)
 			}
@@ -1083,19 +1130,32 @@ extension WebViewController {
 			if (titleNode) {
 				var htmlContent = \(jsonHtml);
 
-				var existing = titleNode.querySelector('.ai-title-translation');
-				if (existing) {
-					existing.innerHTML = htmlContent;
-				} else {
-					var div = document.createElement('div');
-					div.className = 'ai-title-translation';
-					div.style.color = 'var(--secondary-label-color)';
-					div.style.fontStyle = 'italic';
-					div.style.fontSize = '0.8em';
-					div.style.marginTop = '4px';
-					div.style.marginBottom = '8px';
-					div.innerHTML = htmlContent;
-					titleNode.appendChild(div);
+				var existingSibling = titleNode.nextElementSibling;
+				if (existingSibling && existingSibling.classList && existingSibling.classList.contains('ai-title-translation')) {
+					existingSibling.innerHTML = htmlContent;
+					existingSibling.style.display = 'block';
+					return;
+				}
+
+				var existingChild = titleNode.querySelector('.ai-title-translation');
+				if (existingChild) {
+					existingChild.innerHTML = htmlContent;
+					if (titleNode.parentNode) {
+						titleNode.parentNode.insertBefore(existingChild, titleNode.nextSibling);
+					}
+					return;
+				}
+
+				var div = document.createElement('div');
+				div.className = 'ai-title-translation';
+				div.style.color = 'var(--secondary-label-color)';
+				div.style.fontStyle = 'italic';
+				div.style.fontSize = '0.8em';
+				div.style.marginTop = '4px';
+				div.style.marginBottom = '8px';
+				div.innerHTML = htmlContent;
+				if (titleNode.parentNode) {
+					titleNode.parentNode.insertBefore(div, titleNode.nextSibling);
 				}
 			}
 		})();
@@ -1225,11 +1285,20 @@ extension WebViewController {
 				}
 			}
 
+			// Prevent duplicate IDs by stripping any previously-assigned IDs inside injected blocks.
+			var injectedNodes = document.querySelectorAll('.ai-translation [id], .ai-title-translation [id]');
+			for (var i = 0; i < injectedNodes.length; i++) {
+				injectedNodes[i].removeAttribute('id');
+			}
+
 			var allNodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
 			var bodyIndex = 0;
 			for (var i = 0; i < allNodes.length; i++) {
 				var node = allNodes[i];
 				if (summaryContainer && summaryContainer.contains(node)) {
+					continue;
+				}
+				if (node.closest && (node.closest('.ai-translation') || node.closest('.ai-title-translation'))) {
 					continue;
 				}
 
@@ -1257,33 +1326,76 @@ extension WebViewController {
 
 			var urlRegex = /^(https?:\\/\\/[^\\s]+)$/i;
 
-			function findActionableNode(start) {
-				if (!start) {
+			function isExcluded(start) {
+				if (!start || !start.closest) {
+					return false;
+				}
+				return !!(start.closest('#aiSummary') || start.closest('.ai-title-translation'));
+			}
+
+			function elementForPoint(x, y) {
+				try {
+					if (document.caretPositionFromPoint) {
+						var pos = document.caretPositionFromPoint(x, y);
+						if (pos && pos.offsetNode) {
+							var node = pos.offsetNode;
+							if (node.nodeType === Node.TEXT_NODE) {
+								return node.parentElement;
+							}
+							if (node.nodeType === Node.ELEMENT_NODE) {
+								return node;
+							}
+						}
+					}
+
+					if (document.caretRangeFromPoint) {
+						var range = document.caretRangeFromPoint(x, y);
+						if (range && range.startContainer) {
+							var node = range.startContainer;
+							if (node.nodeType === Node.TEXT_NODE) {
+								return node.parentElement;
+							}
+							if (node.nodeType === Node.ELEMENT_NODE) {
+								return node;
+							}
+						}
+					}
+				} catch (e) {
+					// ignore
+				}
+				return document.elementFromPoint(x, y);
+			}
+
+			function closestActionableBlock(start) {
+				if (!start || !start.closest) {
 					return null;
 				}
 
-				if (start.closest) {
-					// Don't hijack taps on links/images.
-					if (start.closest('a') || start.closest('img')) {
-						return null;
-					}
-
-					// If tapping on an injected translation block, map back to its source node.
-					var translation = start.closest('.ai-translation');
-					if (translation && translation.previousElementSibling) {
-						return translation.previousElementSibling;
-					}
+				if (isExcluded(start)) {
+					return null;
 				}
 
-				var node = start;
-				while (node && node !== document.body) {
-					var tag = (node.tagName || '').toLowerCase();
-					if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
-						return node;
-					}
-					node = node.parentElement;
+				// Don't hijack taps on links/images.
+				if (start.closest('a') || start.closest('img')) {
+					return null;
 				}
-				return null;
+
+				// If tapping on an injected translation block, map back to its source node.
+				var translation = start.closest('.ai-translation');
+				if (translation && translation.previousElementSibling) {
+					return translation.previousElementSibling;
+				}
+
+				var block = start.closest('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+				if (!block) {
+					return null;
+				}
+
+				if (block.closest('.ai-translation') || block.closest('.ai-title-translation') || block.closest('#aiSummary')) {
+					return null;
+				}
+
+				return block;
 			}
 
 			function triggerAction(node) {
@@ -1341,9 +1453,22 @@ extension WebViewController {
 
 			window.triggerHoverActionAt = function(x, y) {
 				try {
-					var actionable = findActionableNode(document.elementFromPoint(x, y));
+					var start = elementForPoint(x, y);
+					var actionable = closestActionableBlock(start);
 					if (actionable) {
 						triggerAction(actionable);
+						return;
+					}
+
+					if (document.elementsFromPoint) {
+						var elements = document.elementsFromPoint(x, y);
+						for (var i = 0; i < elements.length; i++) {
+							var candidate = closestActionableBlock(elements[i]);
+							if (candidate) {
+								triggerAction(candidate);
+								return;
+							}
+						}
 					}
 				} catch (e) {
 					// ignore
@@ -1376,12 +1501,15 @@ extension WebViewController {
 
 		let js = """
 		(function() {
+			var summaryContainer = document.getElementById('aiSummary');
 			var nodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
 			var result = [];
 			var urlRegex = /^(https?:\\/\\/[^\\s]+)$/i;
 
 			for (var i = 0; i < nodes.length; i++) {
 				var node = nodes[i];
+				if (summaryContainer && summaryContainer.contains(node)) continue;
+				if (node.closest && (node.closest('.ai-translation') || node.closest('.ai-title-translation'))) continue;
 				var text = node.innerText.trim();
 				if (text.length <= 5) continue;
 				if (urlRegex.test(text)) continue;

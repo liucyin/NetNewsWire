@@ -45,6 +45,21 @@ struct AIPreferencesView: View {
 					get: { settings.autoTranslateTitles },
 					set: { settings.autoTranslateTitles = $0 }
 				))
+
+				Toggle("Translate Paragraph on Tap", isOn: Binding(
+					get: { settings.hoverTranslationEnabled },
+					set: { settings.hoverTranslationEnabled = $0 }
+				))
+
+				Picker("Tap Gesture", selection: Binding(
+					get: { settings.paragraphTranslationTrigger },
+					set: { settings.paragraphTranslationTrigger = $0 }
+				)) {
+					Text("Single Tap").tag(AISettings.ParagraphTranslationTrigger.singleTap)
+					Text("Double Tap").tag(AISettings.ParagraphTranslationTrigger.doubleTap)
+				}
+				.pickerStyle(.segmented)
+				.disabled(!settings.hoverTranslationEnabled)
 			}
 
 			profileSection(title: "Summary Provider", usage: .summary)

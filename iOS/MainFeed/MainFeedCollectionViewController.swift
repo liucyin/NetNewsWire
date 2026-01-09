@@ -835,7 +835,7 @@ extension MainFeedCollectionViewController: UIContextMenuInteractionDelegate {
 
 extension MainFeedCollectionViewController {
 	func makeFeedContextMenu(indexPath: IndexPath, includeDeleteRename: Bool) -> UIContextMenuConfiguration {
-		return UIContextMenuConfiguration(identifier: MainFeedRowIdentifier(indexPath: indexPath), previewProvider: nil, actionProvider: { [ weak self] suggestedActions in
+		return UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: { [ weak self] suggestedActions in
 
 			guard let self = self else { return nil }
 
@@ -880,7 +880,7 @@ extension MainFeedCollectionViewController {
 	}
 
 	func makeFolderContextMenu(indexPath: IndexPath) -> UIContextMenuConfiguration {
-		return UIContextMenuConfiguration(identifier: MainFeedRowIdentifier(indexPath: indexPath), previewProvider: nil, actionProvider: { [weak self] suggestedActions in
+		return UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: { [weak self] suggestedActions in
 
 			guard let self = self else { return nil }
 
@@ -907,7 +907,7 @@ extension MainFeedCollectionViewController {
 			return nil
 		}
 
-		return UIContextMenuConfiguration(identifier: MainFeedRowIdentifier(indexPath: indexPath), previewProvider: nil, actionProvider: { suggestedActions in
+		return UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: { suggestedActions in
 			return UIMenu(title: "", children: [markAllAction])
 		})
 	}
@@ -1222,4 +1222,3 @@ extension MainFeedCollectionViewController {
 		deleteCommand.perform()
 	}
 }
-
