@@ -1483,8 +1483,16 @@ extension WebViewController {
 	@MainActor private func triggerParagraphTranslation(at location: CGPoint) {
 		guard let webView else { return }
 
-		let x = Double(location.x)
-		let y = Double(location.y)
+		// `location` is in the web view's UIKit coordinate space, but the JS hit-testing APIs
+		// (caretPositionFromPoint / caretRangeFromPoint / elementFromPoint) expect viewport-relative
+		// client coordinates. The web content is pushed down by the safe area (status bar / navigation
+		// bar), so a UIKit y is larger than the matching client y by safeAreaInsets.top. Without this
+		// correction the hit test lands roughly one safe-area-height lower than the tap, which usually
+		// resolves to the *next* paragraph. This is the inverse of the conversion in
+		// showFullScreenImage(_:clickMessage:webView:), which adds safeAreaInsets.top going JS → UIKit.
+		let insets = webView.safeAreaInsets
+		let x = Double(location.x - insets.left)
+		let y = Double(location.y - insets.top)
 		let js = """
 		(function() {
 			if (window.triggerHoverActionAt) {
