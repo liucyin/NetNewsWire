@@ -43,9 +43,17 @@ final class AppDefaults: Sendable {
 	private init() {}
 
 	nonisolated(unsafe) static let store: UserDefaults = {
-		let appIdentifierPrefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as! String
-		let suiteName = "\(appIdentifierPrefix)group.\(Bundle.main.bundleIdentifier!)"
-		return UserDefaults.init(suiteName: suiteName)!
+		// Under an enterprise/ad-hoc resign the App Group entitlement may be missing or the
+		// AppIdentifierPrefix unresolved, so the shared suite is unavailable. Fall back to
+		// standard defaults instead of force-unwrapping (which crashes at launch).
+		guard let appIdentifierPrefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as? String,
+			  !appIdentifierPrefix.isEmpty,
+			  !appIdentifierPrefix.contains("$("),
+			  let bundleIdentifier = Bundle.main.bundleIdentifier else {
+			return .standard
+		}
+		let suiteName = "\(appIdentifierPrefix)group.\(bundleIdentifier)"
+		return UserDefaults(suiteName: suiteName) ?? .standard
 	}()
 
 	struct Key {

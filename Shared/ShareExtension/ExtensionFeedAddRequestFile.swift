@@ -16,9 +16,14 @@ final class ExtensionFeedAddRequestFile: NSObject, NSFilePresenter, Sendable {
 	static private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "ExtensionFeedAddRequestFile")
 
 	private static let filePath: String = {
-		let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as! String
-		let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
-		return containerURL!.appendingPathComponent("extension_feed_add_request.plist").path
+		guard let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as? String,
+			  !appGroup.isEmpty,
+			  !appGroup.contains("$("),
+			  let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+			// App Group unavailable (e.g. enterprise resign); fall back to a local path so callers don't crash.
+			return (NSTemporaryDirectory() as NSString).appendingPathComponent("extension_feed_add_request.plist")
+		}
+		return containerURL.appendingPathComponent("extension_feed_add_request.plist").path
 	}()
 
 	private let operationQueue = {

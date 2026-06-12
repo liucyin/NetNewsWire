@@ -18,9 +18,14 @@ import Account
 	static private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "ExtensionContainersFile")
 
 	private static var filePath: String = {
-		let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as! String
-		let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
-		return containerURL!.appendingPathComponent("extension_containers.plist").path
+		guard let appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as? String,
+			  !appGroup.isEmpty,
+			  !appGroup.contains("$("),
+			  let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+			// App Group unavailable (e.g. enterprise resign); fall back to a local path so callers don't crash.
+			return (NSTemporaryDirectory() as NSString).appendingPathComponent("extension_containers.plist")
+		}
+		return containerURL.appendingPathComponent("extension_containers.plist").path
 	}()
 
 	private var isActive = false
