@@ -26,6 +26,7 @@ final class SettingsViewController: UITableViewController {
 		case appearance = 5
 		case troubleshooting = 6
 		case help = 7
+		case ai = 8
 	}
 
 	private enum TroubleshootingRow: Int {
@@ -323,6 +324,11 @@ final class SettingsViewController: UITableViewController {
 			default:
 				break
 			}
+		case .ai:
+			tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
+			let controller = UIHostingController(rootView: AIPreferencesView())
+			controller.title = NSLocalizedString("AI", comment: "AI settings title")
+			self.navigationController?.pushViewController(controller, animated: true)
 		default:
 			tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 		}

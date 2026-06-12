@@ -10,10 +10,12 @@ import UIKit
 @preconcurrency import WebKit
 import RSCore
 import RSWeb
+import RSMarkdown
 import Account
 import Articles
 import SafariServices
 import MessageUI
+import NaturalLanguage
 import Images
 
 @MainActor protocol WebViewControllerDelegate: AnyObject {
@@ -26,6 +28,7 @@ final class WebViewController: UIViewController {
 		static let imageWasClicked = "imageWasClicked"
 		static let imageWasShown = "imageWasShown"
 		static let showFeedInspector = "showFeedInspector"
+		static let requestTranslation = "requestTranslation"
 	}
 
 	private var topShowBarsView: UIView!
@@ -38,6 +41,20 @@ final class WebViewController: UIViewController {
 	}
 
 	private lazy var contextMenuInteraction = UIContextMenuInteraction(delegate: self)
+	private lazy var paragraphTranslationSingleTapRecognizer: UITapGestureRecognizer = {
+		let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleParagraphTranslationTap(_:)))
+		recognizer.numberOfTapsRequired = 1
+		recognizer.cancelsTouchesInView = false
+		recognizer.delegate = self
+		return recognizer
+	}()
+	private lazy var paragraphTranslationDoubleTapRecognizer: UITapGestureRecognizer = {
+		let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleParagraphTranslationTap(_:)))
+		recognizer.numberOfTapsRequired = 2
+		recognizer.cancelsTouchesInView = false
+		recognizer.delegate = self
+		return recognizer
+	}()
 	private var isFullScreenAvailable: Bool {
 		return AppDefaults.shared.articleFullscreenAvailable && traitCollection.userInterfaceIdiom == .phone
 	}
@@ -93,7 +110,52 @@ final class WebViewController: UIViewController {
 		configureTopShowBarsView()
 		configureBottomShowBarsView()
 
+		paragraphTranslationSingleTapRecognizer.require(toFail: paragraphTranslationDoubleTapRecognizer)
+		updateParagraphTranslationGestureRecognizers()
+
 		loadWebView()
+	}
+
+	override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+		updateParagraphTranslationGestureRecognizers()
+	}
+
+	@MainActor private func updateParagraphTranslationGestureRecognizers() {
+		let enabled = AISettings.shared.isEnabled && AISettings.shared.hoverTranslationEnabled
+
+		switch AISettings.shared.paragraphTranslationTrigger {
+		case .singleTap:
+			paragraphTranslationSingleTapRecognizer.isEnabled = enabled
+			paragraphTranslationDoubleTapRecognizer.isEnabled = false
+		case .doubleTap:
+			paragraphTranslationSingleTapRecognizer.isEnabled = false
+			paragraphTranslationDoubleTapRecognizer.isEnabled = enabled
+		}
+	}
+
+	@objc private func handleParagraphTranslationTap(_ recognizer: UITapGestureRecognizer) {
+		guard recognizer.state == .ended else { return }
+		guard AISettings.shared.isEnabled, AISettings.shared.hoverTranslationEnabled else { return }
+		guard let webView else { return }
+		guard article != nil else { return }
+
+		let isSingle = recognizer === paragraphTranslationSingleTapRecognizer
+		let isDouble = recognizer === paragraphTranslationDoubleTapRecognizer
+		switch AISettings.shared.paragraphTranslationTrigger {
+		case .singleTap:
+			guard isSingle else { return }
+		case .doubleTap:
+			guard isDouble else { return }
+		}
+
+		let location = recognizer.location(in: webView)
+		Task { @MainActor [weak self] in
+			guard let self else { return }
+			await self.ensureStableIDs(force: false)
+			await self.injectParagraphTranslationListenerIfNeeded()
+			self.triggerParagraphTranslation(at: location)
+		}
 	}
 
 	override func viewSafeAreaInsetsDidChange() {
@@ -321,6 +383,29 @@ final class WebViewController: UIViewController {
 	}
 }
 
+extension WebViewController: UIGestureRecognizerDelegate {
+	func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+		guard gestureRecognizer === paragraphTranslationSingleTapRecognizer || gestureRecognizer === paragraphTranslationDoubleTapRecognizer else {
+			return true
+		}
+
+		guard AISettings.shared.isEnabled, AISettings.shared.hoverTranslationEnabled else {
+			return false
+		}
+
+		switch AISettings.shared.paragraphTranslationTrigger {
+		case .singleTap:
+			return gestureRecognizer === paragraphTranslationSingleTapRecognizer
+		case .doubleTap:
+			return gestureRecognizer === paragraphTranslationDoubleTapRecognizer
+		}
+	}
+
+	func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+		true
+	}
+}
+
 // MARK: ArticleExtractorDelegate
 
 extension WebViewController: ArticleExtractorDelegate {
@@ -399,6 +484,11 @@ extension WebViewController: WKNavigationDelegate {
 			if index != 0, let oldWebView = view as? PreloadedWebView {
 				oldWebView.removeFromSuperview()
 			}
+		}
+
+		Task { @MainActor [weak self] in
+			guard let self else { return }
+			await self.restoreAIStateIfNeeded(loadedWebView: webView)
 		}
 	}
 
@@ -494,6 +584,15 @@ extension WebViewController: WKScriptMessageHandler {
 		case MessageName.showFeedInspector:
 			if let feed = article?.feed {
 				coordinator.showFeedInspector(for: feed)
+			}
+		case MessageName.requestTranslation:
+			guard let dict = message.body as? [String: Any],
+				  let id = dict["id"] as? String,
+				  let text = dict["text"] as? String else {
+				return
+			}
+			Task { @MainActor [weak self] in
+				await self?.requestTranslation(id: id, text: text)
 			}
 		default:
 			return
@@ -593,11 +692,21 @@ private extension WebViewController {
 				webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.imageWasClicked)
 				webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.imageWasShown)
 				webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.showFeedInspector)
+				webView.configuration.userContentController.removeScriptMessageHandler(forName: MessageName.requestTranslation)
 
 				// Add handlers
 				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasClicked)
 				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.imageWasShown)
 				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.showFeedInspector)
+				webView.configuration.userContentController.add(WrapperScriptMessageHandler(self), name: MessageName.requestTranslation)
+
+				if webView.gestureRecognizers?.contains(self.paragraphTranslationSingleTapRecognizer) != true {
+					webView.addGestureRecognizer(self.paragraphTranslationSingleTapRecognizer)
+				}
+				if webView.gestureRecognizers?.contains(self.paragraphTranslationDoubleTapRecognizer) != true {
+					webView.addGestureRecognizer(self.paragraphTranslationDoubleTapRecognizer)
+				}
+				self.updateParagraphTranslationGestureRecognizers()
 
 				self.renderPage(webView)
 			}
@@ -945,4 +1054,716 @@ extension WebViewController {
 		webView?.evaluateJavaScript("selectPreviousResult()")
 	}
 
+}
+
+// MARK: - AI
+
+extension WebViewController {
+
+	@MainActor private func requestTranslation(id: String, text: String) async {
+		guard AISettings.shared.isEnabled else { return }
+		guard let article else { return }
+		let articleID = article.articleID
+
+		if let cached = AICacheManager.shared.getTranslation(for: articleID),
+		   let cachedTranslation = cached[id] {
+			injectTranslation(id: id, text: cachedTranslation)
+			return
+		}
+
+		showTranslationLoading(for: id)
+
+		do {
+			let targetLanguage = AISettings.shared.outputLanguage
+			let translation = try await AIService.shared.translate(text: text, targetLanguage: targetLanguage)
+			guard self.article?.articleID == articleID else { return }
+
+			injectTranslation(id: id, text: translation)
+
+			var updated = AICacheManager.shared.getTranslation(for: articleID) ?? [:]
+			updated[id] = translation
+			AICacheManager.shared.saveTranslation(updated, for: articleID)
+		} catch {
+			guard self.article?.articleID == articleID else { return }
+			showTranslationError(for: id, message: error.localizedDescription)
+		}
+	}
+
+	@MainActor func showAISummaryLoading() {
+		let js = """
+		(function() {
+			var summaryDiv = document.getElementById('aiSummary');
+			if (summaryDiv) {
+				summaryDiv.style.display = 'block';
+				summaryDiv.style.padding = '20px 24px';
+				summaryDiv.style.marginBottom = '20px';
+				summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
+				summaryDiv.style.color = 'var(--secondary-label-color)';
+				summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+				summaryDiv.style.boxSizing = 'border-box';
+
+				summaryDiv.innerHTML = `
+					<div style="display: flex; align-items: center; gap: 10px; opacity: 0.9;">
+						<span style="font-weight: 500; font-size: 13px; animation: pulse 1.5s infinite; color: var(--secondary-label-color);">Generating AI Summary...</span>
+					</div>
+					<style>
+						@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+					</style>
+				`;
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func injectAISummary(_ text: String) {
+		let html = RSMarkdown.markdownToHTML(text)
+		let jsonString = jsonEncodedString(html)
+
+		let js = """
+		(function() {
+			var summaryDiv = document.getElementById('aiSummary');
+			if (summaryDiv) {
+				summaryDiv.style.padding = '20px 24px';
+				summaryDiv.style.marginBottom = '24px';
+				summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
+				summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+				summaryDiv.style.fontSize = '1em';
+				summaryDiv.style.lineHeight = '1.6';
+				summaryDiv.style.color = 'var(--body-text-color)';
+				summaryDiv.style.boxSizing = 'border-box';
+
+				var htmlContent = \(jsonString);
+
+				var content = `
+				<div class="ai-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; cursor: pointer; user-select: none;" onclick="toggleAISummary(this)">
+					<div style="font-size: 0.85em; font-weight: 700; text-transform: uppercase; color: var(--secondary-label-color); letter-spacing: 0.05em;">AI Summary</div>
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--secondary-label-color); transition: transform 0.2s;">
+						<polyline points="6 9 12 15 18 9"></polyline>
+					</svg>
+				</div>
+				<div class="ai-content" style="display: block;">${htmlContent}</div>
+				<style>
+					.ai-content h1, .ai-content h2, .ai-content h3 { margin-top: 1.2em; margin-bottom: 0.6em; color: var(--header-text-color); font-weight: 600; }
+					.ai-content h3 { font-size: 1.1em; }
+					.ai-content p { margin-bottom: 1em; }
+					.ai-content ul, .ai-content ol { margin-bottom: 1em; padding-left: 1.5em; }
+					.ai-content li { margin-bottom: 0.5em; }
+					.ai-content blockquote { border-left: 3px solid var(--accent-color); padding-left: 1em; color: var(--secondary-label-color); margin-left: 0; }
+				</style>
+				`;
+
+				summaryDiv.innerHTML = content;
+				summaryDiv.style.display = 'block';
+
+				if (!window.toggleAISummary) {
+					window.toggleAISummary = function(header) {
+						var content = header.nextElementSibling;
+						var icon = header.querySelector('svg');
+						if (content.style.display === 'none') {
+							content.style.display = 'block';
+							icon.style.transform = 'rotate(0deg)';
+						} else {
+							content.style.display = 'none';
+							icon.style.transform = 'rotate(-90deg)';
+						}
+					};
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func injectTitleTranslation(_ text: String) {
+		let html = RSMarkdown.markdownToHTML(text)
+		let jsonHtml = jsonEncodedString(html)
+
+		let js = """
+		(function() {
+			var titleNode = document.querySelector('h1.article-title') || document.querySelector('h1');
+			if (titleNode) {
+				var htmlContent = \(jsonHtml);
+
+				var existingSibling = titleNode.nextElementSibling;
+				if (existingSibling && existingSibling.classList && existingSibling.classList.contains('ai-title-translation')) {
+					existingSibling.innerHTML = htmlContent;
+					existingSibling.style.display = 'block';
+					return;
+				}
+
+				var existingChild = titleNode.querySelector('.ai-title-translation');
+				if (existingChild) {
+					existingChild.innerHTML = htmlContent;
+					if (titleNode.parentNode) {
+						titleNode.parentNode.insertBefore(existingChild, titleNode.nextSibling);
+					}
+					return;
+				}
+
+				var div = document.createElement('div');
+				div.className = 'ai-title-translation';
+				div.style.color = 'var(--secondary-label-color)';
+				div.style.fontStyle = 'italic';
+				div.style.fontSize = '0.8em';
+				div.style.marginTop = '4px';
+				div.style.marginBottom = '8px';
+				div.innerHTML = htmlContent;
+				if (titleNode.parentNode) {
+					titleNode.parentNode.insertBefore(div, titleNode.nextSibling);
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func injectTranslation(id: String, text: String) {
+		let html = RSMarkdown.markdownToHTML(text)
+		let jsonHtml = jsonEncodedString(html)
+		let jsonId = jsonEncodedString(id)
+
+		let js = """
+		(function() {
+			var node = document.getElementById(\(jsonId));
+			if (node) {
+				var htmlContent = \(jsonHtml);
+
+				var existing = node.nextElementSibling;
+				if (existing && existing.className == 'ai-translation') {
+					existing.style.display = 'block';
+					existing.innerHTML = htmlContent;
+					existing.setAttribute('data-ai-translation-state', 'success');
+				} else {
+					var div = document.createElement('div');
+					div.className = 'ai-translation';
+					div.setAttribute('data-ai-translation-state', 'success');
+					div.style.color = 'var(--secondary-label-color)';
+					div.style.fontStyle = 'italic';
+					div.style.marginTop = '6px';
+					div.style.marginBottom = '16px';
+					div.style.paddingLeft = '12px';
+					div.style.borderLeft = '3px solid var(--accent-color)';
+					div.style.lineHeight = '1.6';
+					div.innerHTML = htmlContent;
+					node.parentNode.insertBefore(div, node.nextSibling);
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func showTranslationLoading(for id: String) {
+		let jsonId = jsonEncodedString(id)
+		let js = """
+		(function() {
+			var node = document.getElementById(\(jsonId));
+			if (node) {
+				var loadingHTML = `
+					<div style="display: flex; align-items: center; gap: 8px; opacity: 0.9;">
+						<span style="font-size: 13px; animation: pulse 1.5s infinite; color: var(--secondary-label-color);">Translating...</span>
+					</div>
+				`;
+				loadingHTML += `<style>@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }</style>`;
+
+				var existing = node.nextElementSibling;
+				if (existing && existing.className == 'ai-translation') {
+					existing.style.display = 'block';
+					existing.innerHTML = loadingHTML;
+					existing.style.borderLeft = '3px solid var(--accent-color)';
+					existing.setAttribute('data-ai-translation-state', 'loading');
+				} else {
+					var div = document.createElement('div');
+					div.className = 'ai-translation';
+					div.setAttribute('data-ai-translation-state', 'loading');
+					div.style.color = 'var(--secondary-label-color)';
+					div.style.marginTop = '6px';
+					div.style.marginBottom = '16px';
+					div.style.paddingLeft = '12px';
+					div.style.borderLeft = '3px solid var(--accent-color)';
+					div.innerHTML = loadingHTML;
+					node.parentNode.insertBefore(div, node.nextSibling);
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func showTranslationError(for id: String, message: String) {
+		let jsonId = jsonEncodedString(id)
+		let jsonMsg = jsonEncodedString(message)
+
+		let js = """
+		(function() {
+			var node = document.getElementById(\(jsonId));
+			if (node) {
+				var errorHTML = `<div style="color: red; font-size: 0.9em;">⚠️ Translation Error: ` + \(jsonMsg) + `</div>`;
+
+				var existing = node.nextElementSibling;
+				if (existing && existing.className == 'ai-translation') {
+					existing.style.display = 'block';
+					existing.innerHTML = errorHTML;
+					existing.style.borderLeft = '3px solid red';
+					existing.setAttribute('data-ai-translation-state', 'error');
+				} else {
+					var div = document.createElement('div');
+					div.className = 'ai-translation';
+					div.setAttribute('data-ai-translation-state', 'error');
+					div.style.marginTop = '6px';
+					div.style.marginBottom = '16px';
+					div.style.paddingLeft = '12px';
+					div.style.borderLeft = '3px solid red';
+					div.innerHTML = errorHTML;
+					node.parentNode.insertBefore(div, node.nextSibling);
+				}
+			}
+		})();
+		"""
+		webView?.evaluateJavaScript(js)
+	}
+
+	@MainActor func ensureStableIDs(force: Bool = false) async {
+		guard let webView else { return }
+
+		let js = """
+		(function() {
+			var summaryContainer = document.getElementById('aiSummary');
+			if (summaryContainer) {
+				var sNodes = summaryContainer.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+				for (var i = 0; i < sNodes.length; i++) {
+					var shouldAssign = \(force) || !sNodes[i].id || !sNodes[i].id.startsWith('ai-summary-node-');
+					if (shouldAssign) {
+						sNodes[i].id = 'ai-summary-node-' + i;
+					}
+				}
+			}
+
+			// Prevent duplicate IDs by stripping any previously-assigned IDs inside injected blocks.
+			var injectedNodes = document.querySelectorAll('.ai-translation [id], .ai-title-translation [id]');
+			for (var i = 0; i < injectedNodes.length; i++) {
+				injectedNodes[i].removeAttribute('id');
+			}
+
+			var allNodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+			var bodyIndex = 0;
+			for (var i = 0; i < allNodes.length; i++) {
+				var node = allNodes[i];
+				if (summaryContainer && summaryContainer.contains(node)) {
+					continue;
+				}
+				if (node.closest && (node.closest('.ai-translation') || node.closest('.ai-title-translation'))) {
+					continue;
+				}
+
+				var shouldAssign = \(force) || !node.id || !node.id.startsWith('ai-body-node-');
+				if (shouldAssign) {
+					node.id = 'ai-body-node-' + bodyIndex;
+				}
+				bodyIndex++;
+			}
+		})();
+		"""
+
+		_ = try? await webView.evaluateJavaScript(js)
+	}
+
+	@MainActor private func injectParagraphTranslationListenerIfNeeded() async {
+		guard let webView else { return }
+
+		let js = """
+		(function() {
+			if (window.__nnwParagraphTranslationInstalled) {
+				return;
+			}
+			window.__nnwParagraphTranslationInstalled = true;
+
+			var urlRegex = /^(https?:\\/\\/[^\\s]+)$/i;
+
+			function isExcluded(start) {
+				if (!start || !start.closest) {
+					return false;
+				}
+				return !!(start.closest('#aiSummary') || start.closest('.ai-title-translation'));
+			}
+
+			function elementForPoint(x, y) {
+				try {
+					if (document.caretPositionFromPoint) {
+						var pos = document.caretPositionFromPoint(x, y);
+						if (pos && pos.offsetNode) {
+							var node = pos.offsetNode;
+							if (node.nodeType === Node.TEXT_NODE) {
+								return node.parentElement;
+							}
+							if (node.nodeType === Node.ELEMENT_NODE) {
+								return node;
+							}
+						}
+					}
+
+					if (document.caretRangeFromPoint) {
+						var range = document.caretRangeFromPoint(x, y);
+						if (range && range.startContainer) {
+							var node = range.startContainer;
+							if (node.nodeType === Node.TEXT_NODE) {
+								return node.parentElement;
+							}
+							if (node.nodeType === Node.ELEMENT_NODE) {
+								return node;
+							}
+						}
+					}
+				} catch (e) {
+					// ignore
+				}
+				return document.elementFromPoint(x, y);
+			}
+
+			function closestActionableBlock(start) {
+				if (!start || !start.closest) {
+					return null;
+				}
+
+				if (isExcluded(start)) {
+					return null;
+				}
+
+				// Don't hijack taps on links/images.
+				if (start.closest('a') || start.closest('img')) {
+					return null;
+				}
+
+				// If tapping on an injected translation block, map back to its source node.
+				var translation = start.closest('.ai-translation');
+				if (translation && translation.previousElementSibling) {
+					return translation.previousElementSibling;
+				}
+
+				var block = start.closest('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+				if (!block) {
+					return null;
+				}
+
+				if (block.closest('.ai-translation') || block.closest('.ai-title-translation') || block.closest('#aiSummary')) {
+					return null;
+				}
+
+				return block;
+			}
+
+			function triggerAction(node) {
+				if (!node) {
+					return;
+				}
+				if (!node.id) {
+					node.id = 'ai-hover-' + Math.random().toString(36).substr(2, 9);
+				}
+
+				var next = node.nextElementSibling;
+				if (next && next.classList.contains('ai-translation')) {
+					var state = (next.getAttribute('data-ai-translation-state') || '').toLowerCase();
+					if (state === 'loading') {
+						return;
+					}
+					if (state === 'error') {
+						var last = parseInt(node.getAttribute('data-ai-translation-last-request-at') || '0', 10);
+						var now = Date.now();
+						if (now - last < 500) {
+							return;
+						}
+						node.setAttribute('data-ai-translation-last-request-at', String(now));
+						var text = node.innerText.trim();
+						if (text.length > 5 && !urlRegex.test(text)) {
+							window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+						}
+						return;
+					}
+
+					if (next.style.display === 'none') {
+						next.style.display = 'block';
+					} else {
+						next.style.display = 'none';
+					}
+					return;
+				}
+
+				var text = node.innerText.trim();
+				if (text.length <= 5) {
+					return;
+				}
+				if (urlRegex.test(text)) {
+					return;
+				}
+
+				var last = parseInt(node.getAttribute('data-ai-translation-last-request-at') || '0', 10);
+				var now = Date.now();
+				if (now - last < 500) {
+					return;
+				}
+				node.setAttribute('data-ai-translation-last-request-at', String(now));
+				window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+			}
+
+			window.triggerHoverActionAt = function(x, y) {
+				try {
+					var start = elementForPoint(x, y);
+					var actionable = closestActionableBlock(start);
+					if (actionable) {
+						triggerAction(actionable);
+						return;
+					}
+
+					if (document.elementsFromPoint) {
+						var elements = document.elementsFromPoint(x, y);
+						for (var i = 0; i < elements.length; i++) {
+							var candidate = closestActionableBlock(elements[i]);
+							if (candidate) {
+								triggerAction(candidate);
+								return;
+							}
+						}
+					}
+				} catch (e) {
+					// ignore
+				}
+			};
+		})();
+		"""
+
+		_ = try? await webView.evaluateJavaScript(js)
+	}
+
+	@MainActor private func triggerParagraphTranslation(at location: CGPoint) {
+		guard let webView else { return }
+
+		// `location` is in the web view's UIKit coordinate space, but the JS hit-testing APIs
+		// (caretPositionFromPoint / caretRangeFromPoint / elementFromPoint) expect viewport-relative
+		// client coordinates. The web content is pushed down by the safe area (status bar / navigation
+		// bar), so a UIKit y is larger than the matching client y by safeAreaInsets.top. Without this
+		// correction the hit test lands roughly one safe-area-height lower than the tap, which usually
+		// resolves to the *next* paragraph. This is the inverse of the conversion in
+		// showFullScreenImage(_:clickMessage:webView:), which adds safeAreaInsets.top going JS → UIKit.
+		let insets = webView.safeAreaInsets
+		let x = Double(location.x - insets.left)
+		let y = Double(location.y - insets.top)
+		let js = """
+		(function() {
+			if (window.triggerHoverActionAt) {
+				window.triggerHoverActionAt(\(x), \(y));
+			}
+		})();
+		"""
+		webView.evaluateJavaScript(js)
+	}
+
+	@MainActor func prepareForTranslation() async -> [String: String] {
+		await ensureStableIDs(force: true)
+		guard let webView else { return [:] }
+
+		let js = """
+		(function() {
+			var summaryContainer = document.getElementById('aiSummary');
+			var nodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+			var result = [];
+			var urlRegex = /^(https?:\\/\\/[^\\s]+)$/i;
+
+			for (var i = 0; i < nodes.length; i++) {
+				var node = nodes[i];
+				if (summaryContainer && summaryContainer.contains(node)) continue;
+				if (node.closest && (node.closest('.ai-translation') || node.closest('.ai-title-translation'))) continue;
+				var text = node.innerText.trim();
+				if (text.length <= 5) continue;
+				if (urlRegex.test(text)) continue;
+
+				if (node.id && (node.id.startsWith('ai-node-') || node.id.startsWith('ai-summary-node-') || node.id.startsWith('ai-body-node-'))) {
+					result.push({id: node.id, text: text});
+				}
+			}
+			return result;
+		})();
+		"""
+
+		do {
+			guard let result = try await webView.evaluateJavaScript(js) as? [[String: Any]] else {
+				return [:]
+			}
+
+			var map = [String: String]()
+			for item in result {
+				if let id = item["id"] as? String, let text = item["text"] as? String {
+					map[id] = text
+				}
+			}
+			return map
+		} catch {
+			print("AI Translation Prep Error: \(error)")
+			return [:]
+		}
+	}
+
+	@MainActor func performTitleTranslation() async {
+		guard AISettings.shared.isEnabled else { return }
+		guard let article else { return }
+
+		let articleID = article.articleID
+		let title = article.title ?? ""
+		guard !title.isEmpty else { return }
+
+		let targetLang = AISettings.shared.outputLanguage
+		var shouldTranslate = AISettings.shared.translationIsRewriteMode
+
+		if !shouldTranslate {
+			let recognizer = NLLanguageRecognizer()
+			recognizer.processString(title)
+
+			guard let dominant = recognizer.dominantLanguage else { return }
+
+			let targetIso = isoCode(for: targetLang)
+			shouldTranslate = !dominant.rawValue.lowercased().hasPrefix(targetIso.lowercased())
+		}
+
+		guard shouldTranslate else { return }
+
+		do {
+			let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
+			guard self.article?.articleID == articleID else { return }
+			injectTitleTranslation(translated)
+		} catch {
+			print("Title Translation Error: \(error)")
+		}
+	}
+
+	@MainActor func performTranslation() async {
+		guard AISettings.shared.isEnabled else { return }
+		guard let article else { return }
+		let articleID = article.articleID
+
+		if AISettings.shared.autoTranslateTitles {
+			Task { await self.performTitleTranslation() }
+		}
+
+		let map = await prepareForTranslation()
+		let cached = AICacheManager.shared.getTranslation(for: articleID) ?? [:]
+		let itemsToTranslate = map.filter { cached[$0.key] == nil }
+
+		for id in itemsToTranslate.keys {
+			showTranslationLoading(for: id)
+		}
+
+		var translatedMap: [String: String] = [:]
+
+		await withTaskGroup(of: (String, String, Error?)?.self) { group in
+			for (id, text) in itemsToTranslate {
+				group.addTask {
+					do {
+						let target = await AISettings.shared.outputLanguage
+						let translation = try await AIService.shared.translate(text: text, targetLanguage: target)
+						return (id, translation, nil)
+					} catch {
+						return (id, "", error)
+					}
+				}
+			}
+
+			for await result in group {
+				guard let (id, translation, error) = result else { continue }
+				guard self.article?.articleID == articleID else { continue }
+
+				if let error {
+					showTranslationError(for: id, message: error.localizedDescription)
+				} else {
+					injectTranslation(id: id, text: translation)
+					translatedMap[id] = translation
+				}
+			}
+		}
+
+		if !translatedMap.isEmpty {
+			var finalMap = cached
+			finalMap.merge(translatedMap) { _, new in new }
+			AICacheManager.shared.saveTranslation(finalMap, for: articleID)
+		}
+	}
+
+	@MainActor fileprivate func restoreAIStateIfNeeded(loadedWebView: WKWebView) async {
+		guard let current = webView, current === loadedWebView else { return }
+		guard AISettings.shared.isEnabled, let article else { return }
+		let articleID = article.articleID
+
+		if let cachedSummary = AICacheManager.shared.getSummary(for: articleID) {
+			injectAISummary(cachedSummary)
+		}
+
+		await ensureStableIDs(force: true)
+
+		if let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID), !cachedTranslations.isEmpty {
+			for (id, text) in cachedTranslations {
+				injectTranslation(id: id, text: text)
+			}
+		}
+
+		let cachedTitle = AICacheManager.shared.getTitleTranslation(for: articleID)
+		if let cachedTitle {
+			injectTitleTranslation(cachedTitle)
+		}
+
+		if (AICacheManager.shared.getTranslation(for: articleID) != nil) && (cachedTitle != nil || !AISettings.shared.autoTranslateTitles) {
+			return
+		}
+
+		let autoTranslateBody = AISettings.shared.autoTranslate
+		let autoTranslateTitles = AISettings.shared.autoTranslateTitles
+		guard autoTranslateBody || autoTranslateTitles else { return }
+
+		var didTriggerFullTranslation = false
+
+		if autoTranslateBody && AICacheManager.shared.getTranslation(for: articleID) == nil {
+			if AISettings.shared.translationIsRewriteMode {
+				await performTranslation()
+				didTriggerFullTranslation = true
+			} else {
+				let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+				if !textSample.isEmpty {
+					let sample = String(textSample.prefix(500))
+					let recognizer = NLLanguageRecognizer()
+					recognizer.processString(sample)
+
+					if let dominantLang = recognizer.dominantLanguage {
+						let targetLang = AISettings.shared.outputLanguage
+						let targetIso = isoCode(for: targetLang)
+						let detectedIso = dominantLang.rawValue
+
+						if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
+							await performTranslation()
+							didTriggerFullTranslation = true
+						}
+					}
+				}
+			}
+		}
+
+		if !didTriggerFullTranslation && autoTranslateTitles && cachedTitle == nil {
+			await performTitleTranslation()
+		}
+	}
+
+	private func isoCode(for languageName: String) -> String {
+		switch languageName {
+		case "English": return "en"
+		case "Chinese": return "zh"
+		case "Japanese": return "ja"
+		case "French": return "fr"
+		case "German": return "de"
+		case "Spanish": return "es"
+		case "Korean": return "ko"
+		case "Russian": return "ru"
+		default: return "en"
+		}
+	}
+
+	private func jsonEncodedString(_ value: String) -> String {
+		(try? String(data: JSONEncoder().encode(value), encoding: .utf8)) ?? "\"\""
+	}
 }
