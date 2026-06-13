@@ -8,6 +8,7 @@
 
 import AppKit
 @preconcurrency import WebKit
+import ImageIO
 import RSCore
 import RSWeb
 import Articles
@@ -16,6 +17,13 @@ import Images
 @MainActor protocol DetailWebViewControllerDelegate: AnyObject {
 	func mouseDidEnter(_: DetailWebViewController, link: String)
 	func mouseDidExit(_: DetailWebViewController)
+    func detailWebViewControllerDidFinishLoad(_: DetailWebViewController)
+    func requestTranslation(id: String, text: String)
+}
+
+struct AIPhrase: Decodable {
+    let id: String
+    let text: String
 }
 
 final class DetailWebViewController: NSViewController {
@@ -53,6 +61,35 @@ final class DetailWebViewController: NSViewController {
 
 	private var articleTextSize = AppDefaults.shared.articleTextSize
 
+    @MainActor func triggerHoverAction() {
+        webView.evaluateJavaScript("if (window.triggerHoverAction) { window.triggerHoverAction(); }")
+    }
+
+    @MainActor func triggerHoverActionFromHoveredElement() {
+        let js = """
+        if (window.triggerHoverActionFromHover) {
+            window.triggerHoverActionFromHover();
+        } else if (window.triggerHoverAction) {
+            window.triggerHoverAction();
+        }
+        """
+        webView.evaluateJavaScript(js)
+    }
+
+    @MainActor func triggerHoverAction(at windowPoint: NSPoint) {
+        let viewPoint = webView.convert(windowPoint, from: nil)
+        let x = viewPoint.x
+        let y = webView.bounds.height - viewPoint.y
+        let js = """
+        if (window.triggerHoverActionAt) {
+            window.triggerHoverActionAt(\(x), \(y));
+        } else if (window.triggerHoverAction) {
+            window.triggerHoverAction();
+        }
+        """
+        webView.evaluateJavaScript(js)
+    }
+
 	private var webInspectorEnabled: Bool {
 		get {
 			return webView.configuration.preferences._developerExtrasEnabled
@@ -67,6 +104,9 @@ final class DetailWebViewController: NSViewController {
 	private var isReloadingHTML = false
 	private let keyboardDelegate = DetailKeyboardDelegate()
 	private var windowScrollY: CGFloat?
+	private var imageViewerOverlay: ImageViewerOverlayView?
+	private var imageViewerKeyMonitor: Any?
+	private var imageViewerTask: Task<Void, Never>?
 
 	private var isShowingExtractedArticle: Bool {
 		switch state {
@@ -81,6 +121,8 @@ final class DetailWebViewController: NSViewController {
 		static let mouseDidEnter = "mouseDidEnter"
 		static let mouseDidExit = "mouseDidExit"
 		static let windowDidScroll = "windowDidScroll"
+        static let requestTranslation = "requestTranslation"
+		static let openImageViewer = "openImageViewer"
 	}
 
 	override func loadView() {
@@ -90,6 +132,8 @@ final class DetailWebViewController: NSViewController {
 		configuration.userContentController.add(self, name: MessageName.windowDidScroll)
 		configuration.userContentController.add(self, name: MessageName.mouseDidEnter)
 		configuration.userContentController.add(self, name: MessageName.mouseDidExit)
+        configuration.userContentController.add(self, name: MessageName.requestTranslation)
+		configuration.userContentController.add(self, name: MessageName.openImageViewer)
 
 		webView = DetailWebView(frame: NSRect.zero, configuration: configuration)
 		webView.uiDelegate = self
@@ -186,6 +230,14 @@ extension DetailWebViewController: WKScriptMessageHandler {
 			delegate?.mouseDidEnter(self, link: link)
 		} else if message.name == MessageName.mouseDidExit {
 			delegate?.mouseDidExit(self)
+        } else if message.name == MessageName.requestTranslation {
+            if let body = message.body as? [String: String], let id = body["id"], let text = body["text"] {
+                delegate?.requestTranslation(id: id, text: text)
+            }
+		} else if message.name == MessageName.openImageViewer {
+			if let body = message.body as? [String: Any], let src = body["src"] as? String {
+				openImageViewer(src: src)
+			}
 		}
 	}
 }
@@ -232,6 +284,8 @@ extension DetailWebViewController: WKNavigationDelegate, WKUIDelegate {
 	}
 
 	public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        delegate?.detailWebViewControllerDidFinishLoad(self)
+        
 		guard let windowScrollY else {
 			return
 		}
@@ -287,6 +341,7 @@ private extension DetailWebViewController {
 			isReloadingHTML = false
 		}
 
+		closeImageViewer(animated: false)
 		delegate?.mouseDidExit(self)
 
 		let theme = ArticleThemesManager.shared.currentTheme
@@ -318,6 +373,148 @@ private extension DetailWebViewController {
 		html = ArticleRenderingSpecialCases.filterHTMLIfNeeded(baseURL: rendering.baseURL, html: html)
 		WebViewConfiguration.addContentBlockingRules(to: webView)
 		webView.loadHTMLString(html, baseURL: URL(string: rendering.baseURL))
+	}
+
+	func openImageViewer(src: String) {
+		guard let url = URL(string: src), url.isHTTPOrHTTPSURL() else {
+			return
+		}
+
+		let overlay = ensureImageViewerOverlay()
+		overlay.showLoading()
+
+		overlay.alphaValue = 0
+		overlay.isHidden = false
+		NSAnimationContext.runAnimationGroup { context in
+			context.duration = 0.15
+			overlay.animator().alphaValue = 1
+		}
+
+		installImageViewerKeyMonitor()
+
+		imageViewerTask?.cancel()
+		imageViewerTask = Task { @MainActor in
+				do {
+					guard let (data, _) = try? await URLSession.shared.data(from: url), !data.isEmpty else {
+						throw ImageViewerError.downloadFailed
+					}
+
+					view.layoutSubtreeIfNeeded()
+					let maxPixelSize = overlay.preferredDownsampleMaxPixelSize()
+					let image = await Task.detached(priority: .userInitiated) {
+					ImageViewerImageDecoder.downsampledImage(from: data, maxPixelSize: maxPixelSize)
+				}.value
+
+				guard !Task.isCancelled, let image else {
+					throw ImageViewerError.decodeFailed
+				}
+
+				overlay.showImage(image)
+			} catch {
+				guard !Task.isCancelled else { return }
+				closeImageViewer(animated: true)
+				openInBrowser(url, flags: [])
+			}
+		}
+	}
+
+	func closeImageViewer(animated: Bool) {
+		imageViewerTask?.cancel()
+		imageViewerTask = nil
+
+		removeImageViewerKeyMonitor()
+
+		guard let overlay = imageViewerOverlay, !overlay.isHidden else {
+			return
+		}
+
+		let finish: @MainActor () -> Void = {
+			overlay.reset()
+			overlay.isHidden = true
+			overlay.alphaValue = 1
+            NSCursor.arrow.set()
+            // Ensure focus returns to the web view to restore hover events
+            self.view.window?.makeFirstResponder(self.view)
+		}
+
+		if animated {
+			NSAnimationContext.runAnimationGroup { context in
+				context.duration = 0.15
+				overlay.animator().alphaValue = 0
+			} completionHandler: {
+				Task { @MainActor in
+					finish()
+				}
+			}
+		} else {
+            finish()
+        }
+    }
+
+		private func ensureImageViewerOverlay() -> ImageViewerOverlayView {
+	        let useFullWindow = AppDefaults.shared.imageViewerFullWindow
+	        
+	        let targetView: NSView
+	        if useFullWindow, let windowContentView = view.window?.contentView {
+	            targetView = windowContentView
+	        } else {
+	            targetView = view
+	        }
+
+		if imageViewerOverlay == nil {
+			let newOverlay = ImageViewerOverlayView()
+			newOverlay.translatesAutoresizingMaskIntoConstraints = false
+			newOverlay.isHidden = true
+			newOverlay.onClose = { [weak self] in
+				self?.closeImageViewer(animated: true)
+			}
+			self.imageViewerOverlay = newOverlay
+		}
+        
+	        let overlay = imageViewerOverlay! // Must exist now
+	        overlay.setUsesFullWindow(targetView == view.window?.contentView)
+
+	        if overlay.superview != targetView {
+	            overlay.removeFromSuperview() // Remove from old superview if reparenting
+	            targetView.addSubview(overlay, positioned: .above, relativeTo: nil)
+            
+            var topConstraint: NSLayoutConstraint
+            let targetLayoutGuide = targetView.safeAreaLayoutGuide // Use safeAreaLayoutGuide for consistency
+            
+            if targetView == view.window?.contentView {
+                topConstraint = overlay.topAnchor.constraint(equalTo: targetLayoutGuide.topAnchor)
+            } else {
+                topConstraint = overlay.topAnchor.constraint(equalTo: targetView.topAnchor)
+            }
+
+            NSLayoutConstraint.activate([
+                overlay.leadingAnchor.constraint(equalTo: targetView.leadingAnchor),
+                overlay.trailingAnchor.constraint(equalTo: targetView.trailingAnchor),
+                topConstraint,
+                overlay.bottomAnchor.constraint(equalTo: targetView.bottomAnchor)
+            ])
+        }
+
+		return overlay
+	}
+
+	private func installImageViewerKeyMonitor() {
+		guard imageViewerKeyMonitor == nil else { return }
+		imageViewerKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+			guard let self else { return event }
+			if event.keyCode == 53 { // Esc
+				self.closeImageViewer(animated: true)
+				return nil
+			}
+			return event
+		}
+	}
+
+	private func removeImageViewerKeyMonitor() {
+		if let monitor = imageViewerKeyMonitor {
+			NSEvent.removeMonitor(monitor)
+			imageViewerKeyMonitor = nil
+		}
 	}
 
 	func fetchScrollInfo() async -> ScrollInfo? {
@@ -369,4 +566,923 @@ private struct ScrollInfo {
 		self.canScrollDown = viewHeight + offsetY < contentHeight
 		self.canScrollUp = offsetY > 0.1
 	}
+}
+
+// MARK: - AI Injection
+extension DetailWebViewController {
+    
+    func showAISummaryLoading() {
+        let js = """
+        (function() {
+            var summaryDiv = document.getElementById('aiSummary');
+            if (summaryDiv) {
+                summaryDiv.style.display = 'block';
+                summaryDiv.style.padding = '20px 24px';
+                summaryDiv.style.marginBottom = '20px';
+                summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
+                summaryDiv.style.color = 'var(--secondary-label-color)';
+                summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+                summaryDiv.style.boxSizing = 'border-box';
+                
+                // Loading Animation
+                summaryDiv.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 10px; opacity: 0.9;">
+                        <span style="font-weight: 500; font-size: 13px; animation: pulse 1.5s infinite; color: var(--secondary-label-color);">Generating AI Summary...</span>
+                    </div>
+                    <style>
+                        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+                    </style>
+                `;
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+
+    func injectAISummary(_ text: String) {
+        let html = markdownToHTML(text)
+        
+        // Safely encode HTML string for JS injection
+        let jsonString = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
+
+        let js = """
+        (function() {
+            var summaryDiv = document.getElementById('aiSummary');
+            if (summaryDiv) {
+                // Minimalist Styling
+                summaryDiv.style.padding = '20px 24px';
+                summaryDiv.style.marginBottom = '24px';
+                summaryDiv.style.borderBottom = '1px solid var(--separator-color)';
+                summaryDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+                summaryDiv.style.fontSize = '1em'; 
+                summaryDiv.style.lineHeight = '1.6';
+                summaryDiv.style.color = 'var(--body-text-color)';
+                summaryDiv.style.boxSizing = 'border-box';
+                
+                var htmlContent = \(jsonString);
+                
+                var content = `
+                <div class="ai-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; cursor: pointer; user-select: none;" onclick="toggleAISummary(this)">
+                    <div style="font-size: 0.85em; font-weight: 700; text-transform: uppercase; color: var(--secondary-label-color); letter-spacing: 0.05em;">AI Summary</div>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--secondary-label-color); transition: transform 0.2s;">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </div>
+                <div class="ai-content" style="display: block;">${htmlContent}</div>
+                <style>
+                    .ai-content h1, .ai-content h2, .ai-content h3 { margin-top: 1.2em; margin-bottom: 0.6em; color: var(--header-text-color); font-weight: 600; }
+                    .ai-content h3 { font-size: 1.1em; }
+                    .ai-content p { margin-bottom: 1em; }
+                    .ai-content ul, .ai-content ol { margin-bottom: 1em; padding-left: 1.5em; }
+                    .ai-content li { margin-bottom: 0.5em; }
+                    .ai-content blockquote { border-left: 3px solid var(--accent-color); padding-left: 1em; color: var(--secondary-label-color); margin-left: 0; }
+                </style>
+                `;
+                
+                summaryDiv.innerHTML = content;
+                summaryDiv.style.display = 'block';
+
+                if (!window.toggleAISummary) {
+                    window.toggleAISummary = function(header) {
+                        var content = header.nextElementSibling;
+                        var icon = header.querySelector('svg');
+                        if (content.style.display === 'none') {
+                            content.style.display = 'block';
+                            icon.style.transform = 'rotate(0deg)';
+                        } else {
+                            content.style.display = 'none';
+                            icon.style.transform = 'rotate(-90deg)';
+                        }
+                    };
+                }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+    
+    func injectTitleTranslation(_ text: String) {
+        let html = markdownToHTML(text)
+        
+        // Safely encode for JS injection
+        let jsonHtml = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
+        
+        let js = """
+        (function() {
+            // Try to find the title element. NetNewsWire templates usually use .article-title class on h1
+            var titleNode = document.querySelector('h1.article-title') || document.querySelector('h1');
+            
+            if (titleNode) {
+                 var htmlContent = \(jsonHtml);
+                 
+                 // Check if existing translation
+                 var existing = titleNode.querySelector('.ai-title-translation');
+                 if (existing) {
+                    existing.innerHTML = htmlContent;
+                 } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-title-translation';
+                    div.style.color = 'var(--secondary-label-color)';
+                    div.style.fontStyle = 'italic';
+                    div.style.fontSize = '0.8em';
+                    div.style.marginTop = '4px';
+                    div.style.marginBottom = '8px';
+                    div.innerHTML = htmlContent;
+                    titleNode.appendChild(div);
+                 }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+
+	func injectTranslation(id: String, text: String) {
+		let html = markdownToHTML(text)
+        
+		// Safely encode for JS injection
+		let jsonHtml = (try? String(data: JSONEncoder().encode(html), encoding: .utf8)) ?? "\"\""
+		let jsonId = (try? String(data: JSONEncoder().encode(id), encoding: .utf8)) ?? "\"\""
+		
+		let js = """
+        (function() {
+            var node = document.getElementById(\(jsonId));
+            if (node) {
+                var htmlContent = \(jsonHtml);
+                
+                // Check if already has translation
+                var existing = node.nextElementSibling;
+                if (existing && existing.className == 'ai-translation') {
+                    existing.style.display = 'block';
+                    existing.innerHTML = htmlContent;
+                    existing.setAttribute('data-ai-translation-state', 'success');
+                } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-translation';
+                    div.setAttribute('data-ai-translation-state', 'success');
+                    div.style.color = 'var(--secondary-label-color)'; // Adaptive color
+                    div.style.fontStyle = 'italic';
+                    div.style.marginTop = '6px';
+                    div.style.marginBottom = '16px';
+                    div.style.paddingLeft = '12px';
+                    div.style.borderLeft = '3px solid var(--accent-color)';
+                    div.style.lineHeight = '1.6';
+                    div.innerHTML = htmlContent;
+                    node.parentNode.insertBefore(div, node.nextSibling);
+                }
+            }
+        })();
+        """
+		webView.evaluateJavaScript(js)
+	}
+    
+    private func markdownToHTML(_ text: String) -> String {
+        // Simple regex-based markdown parser
+        var html = text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        
+        // Headers (### Heading) - Order matters (match longest first)
+        html = html.replacingOccurrences(of: #"(?m)^######\s+(.+)$"#, with: "<h6>$1</h6>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^#####\s+(.+)$"#, with: "<h5>$1</h5>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^####\s+(.+)$"#, with: "<h4>$1</h4>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^###\s+(.+)$"#, with: "<h3>$1</h3>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^##\s+(.+)$"#, with: "<h2>$1</h2>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"(?m)^#\s+(.+)$"#, with: "<h1>$1</h1>", options: .regularExpression)
+        
+        // Blockquotes (> text)
+        html = html.replacingOccurrences(of: #"(?m)^>\s+(.+)$"#, with: "<blockquote>$1</blockquote>", options: .regularExpression)
+        
+        // Bold (**text**)
+        html = html.replacingOccurrences(of: #"\*\*(.+?)\*\*"#, with: "<strong>$1</strong>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"\_\_(.+?)\_\_"#, with: "<strong>$1</strong>", options: .regularExpression)
+        
+        // Italic (*text*)
+        html = html.replacingOccurrences(of: #"\*(.+?)\*"#, with: "<em>$1</em>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"\b_([^_]+)_\b"#, with: "<em>$1</em>", options: .regularExpression)
+        
+        // Lists (- item or * item) - handle optional indentation
+        html = html.replacingOccurrences(of: #"(?m)^\s*[-*]\s+(.+)$"#, with: "<li>$1</li>", options: .regularExpression)
+        
+        // Code blocks (```code```) - simplified (inline or multiline)
+        // Note: Real multiline code block handling with regex is tricky without state, but strict replacement of ```...``` might work for simple cases.
+        // Let's rely on basic `code` tag.
+        html = html.replacingOccurrences(of: #"```([^`]+)```"#, with: "<pre><code>$1</code></pre>", options: .regularExpression)
+        html = html.replacingOccurrences(of: #"`([^`]+)`"#, with: "<code>$1</code>", options: .regularExpression)
+
+        // Newlines cleanup
+        
+        // 1. Remove newlines after block elements to prevent double spacing
+        // Matches </h1>, </h2>, </blockquote>, </li>, </pre>, then optional whitespace and newlines
+        html = html.replacingOccurrences(of: #"(?i)(</(h[1-6]|blockquote|li|pre)>)\s*\n+"#, with: "$1", options: .regularExpression)
+        
+        // 2. Convert remaining newlines to <br>
+        // Collapse multiple empty lines if desired, but standard md is \n\n = new p.
+        // Here we just turn each \n to <br>.
+        // To avoid excessive spacing for normal text "Text\n\nText" -> "Text<br><br>Text", this is fine.
+        // It's mainly headers causing issues.
+        html = html.replacingOccurrences(of: "\n", with: "<br>")
+        
+        return html
+    }
+
+    // Ensure all target nodes have stable IDs for translation injection
+    // force: if true, overwrites existing IDs (useful when DOM structure changes significantly, e.g. summary added at top)
+    func ensureStableIDs(force: Bool = false) async {
+        let js = """
+        (function() {
+            // Namespace 1: Summary Nodes
+            var summaryContainer = document.getElementById('aiSummary');
+            if (summaryContainer) {
+                var sNodes = summaryContainer.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+                for (var i = 0; i < sNodes.length; i++) {
+                    // Startswith check handles old 'ai-node' IDs by overwriting them if we want strict Namespaces
+                    // But if force=true, we overwrite anyway.
+                    // If force=false, we check if it HAS an ID. If it has 'ai-node-X' (old style), we might want to update it to new style?
+                    // Let's assume force=true is used when refreshing structure.
+                    
+                    var shouldAssign = \(force) || !sNodes[i].id || !sNodes[i].id.startsWith('ai-summary-node-');
+                    if (shouldAssign) {
+                        sNodes[i].id = 'ai-summary-node-' + i;
+                    }
+                }
+            }
+
+            // Namespace 2: Body Nodes (Excluding Summary)
+            var allNodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+            var bodyIndex = 0;
+            
+            for (var i = 0; i < allNodes.length; i++) {
+                var node = allNodes[i];
+                // Check if inside summary
+                if (summaryContainer && summaryContainer.contains(node)) {
+                    continue; 
+                }
+                
+                var shouldAssign = \(force) || !node.id || !node.id.startsWith('ai-body-node-');
+                if (shouldAssign) {
+                    node.id = 'ai-body-node-' + bodyIndex;
+                }
+                bodyIndex++;
+            }
+        })();
+        """
+        _ = try? await webView.evaluateJavaScript(js)
+    }
+
+    func injectHoverListener(keyProperty: String) {
+        let js = """
+        (function() {
+            var lastHoveredNode = null;
+
+            function findActionableNode(start) {
+                if (!start) {
+                    return null;
+                }
+
+                // If hovering over an injected translation block, map back to its source node.
+                if (start.closest) {
+                    var translation = start.closest('.ai-translation');
+                    if (translation && translation.previousElementSibling) {
+                        return translation.previousElementSibling;
+                    }
+                }
+
+                var node = start;
+                while (node && node !== document.body) {
+                    var tag = (node.tagName || '').toLowerCase();
+                    if (['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'].includes(tag)) {
+                        return node;
+                    }
+                    node = node.parentElement;
+                }
+                return null;
+            }
+
+            function depth(node) {
+                var d = 0;
+                while (node) {
+                    d++;
+                    node = node.parentElement;
+                }
+                return d;
+            }
+
+            function deepestHoveredElement() {
+                var hovered = document.querySelectorAll(':hover');
+                if (!hovered || hovered.length === 0) {
+                    return null;
+                }
+                var best = null;
+                var bestDepth = -1;
+                for (var i = 0; i < hovered.length; i++) {
+                    var candidate = hovered[i];
+                    var d = depth(candidate);
+                    if (d > bestDepth) {
+                        bestDepth = d;
+                        best = candidate;
+                    }
+                }
+                return best;
+            }
+            
+            function triggerAction(node) {
+                if (!node.id) {
+                    node.id = 'ai-hover-' + Math.random().toString(36).substr(2, 9);
+                }
+                var next = node.nextElementSibling;
+                if (next && next.classList.contains('ai-translation')) {
+                    var state = (next.getAttribute('data-ai-translation-state') || '').toLowerCase();
+                    if (state === 'loading') {
+                        return;
+                    }
+                    if (state === 'error') {
+                        var last = parseInt(node.getAttribute('data-ai-translation-last-request-at') || '0', 10);
+                        var now = Date.now();
+                        if (now - last < 500) {
+                            return;
+                        }
+                        node.setAttribute('data-ai-translation-last-request-at', String(now));
+                        var text = node.innerText.trim();
+                        if (text.length > 0) {
+                            window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+                        }
+                        return;
+                    }
+
+                    if (next.style.display === 'none') {
+                        next.style.display = 'block';
+                    } else {
+                        next.style.display = 'none';
+                    }
+                } else {
+                    var text = node.innerText.trim();
+                    if (text.length > 0) {
+                         var last = parseInt(node.getAttribute('data-ai-translation-last-request-at') || '0', 10);
+                         var now = Date.now();
+                         if (now - last < 500) {
+                             return;
+                         }
+                         node.setAttribute('data-ai-translation-last-request-at', String(now));
+                         window.webkit.messageHandlers.requestTranslation.postMessage({id: node.id, text: text});
+                    }
+                }
+            }
+            
+            document.addEventListener('mouseover', function(e) {
+                lastHoveredNode = findActionableNode(e.target);
+            });
+
+            document.addEventListener('mouseleave', function() {
+                lastHoveredNode = null;
+            });
+
+            window.triggerHoverAction = function() {
+                if (lastHoveredNode) {
+                    triggerAction(lastHoveredNode);
+                }
+            };
+
+            window.triggerHoverActionFromHover = function() {
+                var hovered = null;
+                try {
+                    hovered = deepestHoveredElement();
+                } catch (e) {
+                    hovered = null;
+                }
+
+                var actionable = findActionableNode(hovered);
+                if (actionable) {
+                    lastHoveredNode = actionable;
+                    triggerAction(actionable);
+                    return;
+                }
+
+                if (lastHoveredNode) {
+                    triggerAction(lastHoveredNode);
+                }
+            };
+
+            window.triggerHoverActionAt = function(x, y) {
+                try {
+                    var actionable = findActionableNode(document.elementFromPoint(x, y));
+                    if (actionable) {
+                        lastHoveredNode = actionable;
+                        triggerAction(actionable);
+                        return;
+                    }
+                } catch (e) {
+                    // Ignore and fall back to last hovered node
+                }
+                if (lastHoveredNode) {
+                    triggerAction(lastHoveredNode);
+                }
+            };
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+    func showTranslationLoading(for id: String) {
+        let jsonId = (try? String(data: JSONEncoder().encode(id), encoding: .utf8)) ?? "\"\""
+        let js = """
+        (function() {
+            var node = document.getElementById(\(jsonId));
+            if (node) {
+                var loadingHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px; opacity: 0.9;">
+                        <span style="font-size: 13px; animation: pulse 1.5s infinite; color: var(--secondary-label-color);">Translating...</span>
+                    </div>
+                `;
+                // Pulse styling is likely already injected by summary, but we can re-inject or assume it exists if summary is used. 
+                // To be safe and self-contained:
+                loadingHTML += `<style>@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }</style>`;
+                
+                var existing = node.nextElementSibling;
+                if (existing && existing.className == 'ai-translation') {
+                    existing.style.display = 'block';
+                    existing.innerHTML = loadingHTML;
+                    existing.style.borderLeft = '3px solid var(--accent-color)';
+                    existing.setAttribute('data-ai-translation-state', 'loading');
+                } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-translation';
+                    div.setAttribute('data-ai-translation-state', 'loading');
+                    div.style.color = 'var(--secondary-label-color)';
+                    div.style.marginTop = '6px';
+                    div.style.marginBottom = '16px';
+                    div.style.paddingLeft = '12px';
+                    div.style.borderLeft = '3px solid var(--accent-color)';
+                    div.innerHTML = loadingHTML;
+                    node.parentNode.insertBefore(div, node.nextSibling);
+                }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+
+    func showTranslationError(for id: String, message: String) {
+        let jsonId = (try? String(data: JSONEncoder().encode(id), encoding: .utf8)) ?? "\"\""
+        let jsonMsg = (try? String(data: JSONEncoder().encode(message), encoding: .utf8)) ?? "\"Error\""
+        
+        let js = """
+        (function() {
+            var node = document.getElementById(\(jsonId));
+            if (node) {
+                var errorHTML = `<div style="color: red; font-size: 0.9em;">⚠️ Translation Error: ` + \(jsonMsg) + `</div>`;
+                
+                var existing = node.nextElementSibling;
+                if (existing && existing.className == 'ai-translation') {
+                    existing.style.display = 'block';
+                    existing.innerHTML = errorHTML;
+                    existing.style.borderLeft = '3px solid red';
+                    existing.setAttribute('data-ai-translation-state', 'error');
+                } else {
+                    var div = document.createElement('div');
+                    div.className = 'ai-translation';
+                    div.setAttribute('data-ai-translation-state', 'error');
+                    div.style.marginTop = '6px';
+                    div.style.marginBottom = '16px';
+                    div.style.paddingLeft = '12px';
+                    div.style.borderLeft = '3px solid red';
+                    div.innerHTML = errorHTML;
+                    node.parentNode.insertBefore(div, node.nextSibling);
+                }
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js)
+    }
+
+    func prepareForTranslation() async -> [String: String] {
+        // Force re-indexing before translation to ensure current DOM order is captured accurately
+        await ensureStableIDs(force: true)
+        
+        let js = """
+        (function() {
+            var nodes = document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6');
+            var result = [];
+            
+            // Regex for checking if text is just a URL
+            var urlRegex = /^(https?:\\/\\/[^\\s]+)$/i;
+
+            for (var i = 0; i < nodes.length; i++) {
+                var node = nodes[i];
+                var text = node.innerText.trim();
+                
+                // Skip if empty or too short
+                if (text.length <= 5) continue;
+                
+                // Skip if it looks like a raw URL
+                if (urlRegex.test(text)) continue;
+
+                // We assume ensureStableIDs has run, so node.id is set.
+                // We accept legacy 'ai-node-', or new 'ai-summary-node-' / 'ai-body-node-'
+                if (node.id && (node.id.startsWith('ai-node-') || node.id.startsWith('ai-summary-node-') || node.id.startsWith('ai-body-node-'))) {
+                    result.push({id: node.id, text: text});
+                }
+            }
+            return result;
+        })();
+        """
+        
+        do {
+            guard let result = try await webView.evaluateJavaScript(js) as? [[String: String]] else {
+                return [:]
+            } 
+            
+            var map = [String: String]()
+            for item in result {
+                if let id = item["id"], let text = item["text"] {
+                    map[id] = text
+                }
+            }
+            return map
+            
+        } catch {
+            print("AI Translation Prep Error: \(error)")
+            return [:]
+        }
+    }
+    
+    // (removed duplicate injectTranslation)
+}
+
+private enum ImageViewerError: Error {
+	case downloadFailed
+	case decodeFailed
+}
+
+private enum ImageViewerImageDecoder {
+	static func downsampledImage(from data: Data, maxPixelSize: Int) -> NSImage? {
+		guard maxPixelSize > 0 else {
+			return NSImage(data: data)
+		}
+
+		guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil) else {
+			return NSImage(data: data)
+		}
+
+		let options: [CFString: Any] = [
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceShouldCacheImmediately: true,
+			kCGImageSourceThumbnailMaxPixelSize: NSNumber(value: maxPixelSize)
+		]
+
+		guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+			return NSImage(data: data)
+		}
+
+		let size = NSSize(width: cgImage.width, height: cgImage.height)
+		return NSImage(cgImage: cgImage, size: size)
+	}
+}
+
+	@MainActor private final class ImageViewerOverlayView: NSView {
+		var onClose: (() -> Void)?
+
+		private let imageView = NonDraggableImageView()
+		private let closeButton = NSButton()
+		private let progressIndicator = NSProgressIndicator()
+		private var closeButtonTopConstraint: NSLayoutConstraint?
+		private var closeButtonTrailingConstraint: NSLayoutConstraint?
+
+		private let baseBackgroundAlpha: CGFloat = 1.0
+		private let maxZoomScale: CGFloat = 8
+
+	private var zoomScale: CGFloat = 1
+	private var panOffset = CGPoint.zero
+
+	private enum DragMode {
+		case none
+		case dismiss
+		case pan
+	}
+
+	private var dragMode = DragMode.none
+	private var dragStartPoint = CGPoint.zero
+	private var dragStartOffset = CGPoint.zero
+
+		override init(frame frameRect: NSRect) {
+			super.init(frame: frameRect)
+			wantsLayer = true
+			layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
+
+		imageView.translatesAutoresizingMaskIntoConstraints = true // We use manual layout for zoom
+		imageView.imageScaling = .scaleProportionallyUpOrDown
+		imageView.imageAlignment = .alignCenter
+		addSubview(imageView)
+
+		progressIndicator.translatesAutoresizingMaskIntoConstraints = false
+		progressIndicator.style = .spinning
+		progressIndicator.isDisplayedWhenStopped = false
+        progressIndicator.controlSize = .large
+		addSubview(progressIndicator)
+
+        imageView.unregisterDraggedTypes()
+
+		closeButton.translatesAutoresizingMaskIntoConstraints = false
+		closeButton.title = ""
+		closeButton.bezelStyle = .texturedRounded
+        closeButton.isBordered = false
+        closeButton.contentTintColor = .white
+        closeButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close")?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 28, weight: .semibold))
+			closeButton.target = self
+			closeButton.action = #selector(closeButtonPressed(_:))
+			addSubview(closeButton)
+
+			closeButtonTopConstraint = closeButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 60)
+			closeButtonTrailingConstraint = closeButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -20)
+			NSLayoutConstraint.activate([
+				closeButtonTopConstraint!,
+				closeButtonTrailingConstraint!,
+	            closeButton.widthAnchor.constraint(equalToConstant: 44),
+	            closeButton.heightAnchor.constraint(equalToConstant: 44),
+
+				progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+				progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
+			])
+
+		reset()
+	}
+
+	required init?(coder: NSCoder) {
+		fatalError("init(coder:) has not been implemented")
+	}
+
+	override func hitTest(_ point: NSPoint) -> NSView? {
+        if isHidden || alphaValue == 0 { return nil }
+        
+        // point is in superview's coordinate system
+        let localPoint = convert(point, from: superview)
+        
+		if closeButton.frame.contains(localPoint) {
+			return closeButton
+		}
+		return self
+	}
+
+		override func layout() {
+			super.layout()
+			updateImageFrame()
+		}
+
+		override func resetCursorRects() {
+			super.resetCursorRects()
+			guard !isHidden, alphaValue > 0 else { return }
+
+			let cursor: NSCursor
+			if imageView.image != nil, zoomScale > 1.01 {
+				cursor = (dragMode == .pan) ? .closedHand : .openHand
+			} else {
+				cursor = .arrow
+			}
+
+			addCursorRect(bounds, cursor: cursor)
+			addCursorRect(closeButton.frame, cursor: .arrow)
+		}
+
+		private func invalidateCursorRects() {
+			window?.invalidateCursorRects(for: self)
+		}
+
+		func showLoading() {
+			resetInteractionState()
+			imageView.image = nil
+			progressIndicator.startAnimation(nil)
+	        // Ensure reset state
+	        imageView.frame = .zero
+			invalidateCursorRects()
+		}
+
+		func showImage(_ image: NSImage) {
+			resetInteractionState()
+			progressIndicator.stopAnimation(nil)
+			imageView.image = image
+			updateImageFrame()
+			invalidateCursorRects()
+		}
+
+		func reset() {
+			progressIndicator.stopAnimation(nil)
+			imageView.image = nil
+			resetInteractionState()
+			updateImageFrame()
+			invalidateCursorRects()
+		}
+
+		func setUsesFullWindow(_ usesFullWindow: Bool) {
+			// Keep the same visual position as the non-full-window overlay.
+			closeButtonTopConstraint?.constant = usesFullWindow ? 20 : 60
+			needsLayout = true
+		}
+
+		@objc private func closeButtonPressed(_ sender: Any?) {
+			onClose?()
+		}
+
+	func preferredDownsampleMaxPixelSize() -> Int {
+		let points = max(bounds.width, bounds.height)
+		let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+		let target = Int((points * scale * 2).rounded(.up))
+		return max(1024, min(target, 8192))
+	}
+
+	override func scrollWheel(with event: NSEvent) {
+		guard imageView.image != nil else { return }
+		guard event.momentumPhase == [] else { return }
+
+		let deltaY = event.scrollingDeltaY
+		guard deltaY != 0 else { return }
+
+		let factor: CGFloat
+		if event.hasPreciseScrollingDeltas {
+			factor = CGFloat(pow(1.005, Double(deltaY))) // Increased from 1.0015
+		} else {
+			factor = deltaY > 0 ? 1.2 : 0.8 // Increased from 1.1/0.9
+		}
+
+		setZoomScale(zoomScale * factor)
+	}
+
+		override func mouseDown(with event: NSEvent) {
+			guard imageView.image != nil else { return }
+			dragStartPoint = convert(event.locationInWindow, from: nil)
+			dragStartOffset = panOffset
+			dragMode = zoomScale > 1.01 ? .pan : .dismiss
+			invalidateCursorRects()
+		}
+
+	override func mouseDragged(with event: NSEvent) {
+		guard imageView.image != nil else { return }
+		let point = convert(event.locationInWindow, from: nil)
+		let delta = CGPoint(x: point.x - dragStartPoint.x, y: point.y - dragStartPoint.y)
+
+		switch dragMode {
+		case .pan:
+			panOffset = clampedPanOffset(CGPoint(x: dragStartOffset.x + delta.x, y: dragStartOffset.y + delta.y))
+			updateImageFrame()
+		case .dismiss:
+			panOffset = delta
+			updateDismissBackground(for: delta)
+			updateImageFrame()
+		case .none:
+			break
+		}
+	}
+
+		override func mouseUp(with event: NSEvent) {
+			guard imageView.image != nil else { return }
+			defer {
+				dragMode = .none
+				invalidateCursorRects()
+			}
+
+			switch dragMode {
+			case .dismiss:
+				let threshold = max(120, min(bounds.width, bounds.height) * 0.25)
+			let distance = hypot(panOffset.x, panOffset.y)
+			if distance >= threshold {
+				onClose?()
+				return
+			}
+			animateDismissCancel()
+		case .pan:
+			panOffset = clampedPanOffset(panOffset)
+			updateImageFrame()
+		case .none:
+			break
+		}
+	}
+
+		private func setZoomScale(_ scale: CGFloat) {
+			let clamped = max(1, min(scale, maxZoomScale))
+			// Only snap back to 1.0 when zooming out — otherwise small scroll deltas
+			// near 1.0 create a deadzone where zoom-in appears to do nothing.
+			if clamped < zoomScale, abs(clamped - 1) < 0.02 {
+				zoomScale = 1
+			panOffset = .zero
+			layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
+		} else {
+			zoomScale = clamped
+			panOffset = clampedPanOffset(panOffset)
+		}
+
+			updateImageFrame()
+			invalidateCursorRects()
+		}
+
+		private func resetInteractionState() {
+			zoomScale = 1
+			panOffset = .zero
+		dragMode = .none
+			dragStartPoint = .zero
+			dragStartOffset = .zero
+			layer?.backgroundColor = NSColor.black.withAlphaComponent(baseBackgroundAlpha).cgColor
+			invalidateCursorRects()
+		}
+
+	private func updateDismissBackground(for offset: CGPoint) {
+		let threshold = max(120, min(bounds.width, bounds.height) * 0.25)
+		let distance = hypot(offset.x, offset.y)
+		let progress = max(0, min(1, distance / threshold))
+		let alpha = baseBackgroundAlpha * (1 - progress * 0.7)
+		layer?.backgroundColor = NSColor.black.withAlphaComponent(alpha).cgColor
+	}
+
+	private func animateDismissCancel() {
+		guard let image = imageView.image else { return }
+		let baseFrame = baseImageFrame(for: image)
+
+		NSAnimationContext.runAnimationGroup { context in
+			context.duration = 0.2
+			context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+			imageView.animator().frame = baseFrame
+		} completionHandler: { [weak self] in
+			Task { @MainActor in
+				guard let self else { return }
+				self.panOffset = .zero
+				self.layer?.backgroundColor = NSColor.black.withAlphaComponent(self.baseBackgroundAlpha).cgColor
+				self.updateImageFrame()
+			}
+		}
+	}
+
+	private func updateImageFrame() {
+		guard let image = imageView.image else {
+			imageView.frame = .zero
+			return
+		}
+
+		let baseFrame = baseImageFrame(for: image)
+		if zoomScale > 1.0, dragMode != .dismiss {
+			panOffset = clampedPanOffset(panOffset, baseFrame: baseFrame)
+		}
+
+		let size = NSSize(width: baseFrame.width * zoomScale, height: baseFrame.height * zoomScale)
+		let origin = NSPoint(
+			x: baseFrame.midX - size.width / 2 + panOffset.x,
+			y: baseFrame.midY - size.height / 2 + panOffset.y
+		)
+		imageView.frame = NSRect(origin: origin, size: size)
+	}
+
+	private func baseImageFrame(for image: NSImage) -> NSRect {
+		let inset: CGFloat = 40 // More padding for X button
+		let availableBounds = bounds.insetBy(dx: inset, dy: inset)
+		guard availableBounds.width > 0, availableBounds.height > 0 else {
+			return .zero
+		}
+
+		let imageSize = image.size
+		guard imageSize.width > 0, imageSize.height > 0 else {
+			return .zero
+		}
+
+		// Calculate fitting scale so it FILLS the available space if user wants maximization
+        // But we preserve aspect ratio.
+        // The key change: REMOVED min(..., 1). Now it scales UP to fit.
+		let scale = min(availableBounds.width / imageSize.width, availableBounds.height / imageSize.height)
+		let size = NSSize(width: imageSize.width * scale, height: imageSize.height * scale)
+		let origin = NSPoint(
+			x: availableBounds.midX - size.width / 2,
+			y: availableBounds.midY - size.height / 2
+		)
+		return NSRect(origin: origin, size: size)
+	}
+
+	private func clampedPanOffset(_ offset: CGPoint, baseFrame: NSRect? = nil) -> CGPoint {
+		guard zoomScale > 1.0, dragMode != .dismiss else {
+			return .zero
+		}
+        
+        // When zoomed out or 1.0, allow elastic pan? No, just zero.
+        if zoomScale <= 1.0 { return .zero }
+
+		guard let image = imageView.image else {
+			return .zero
+		}
+
+		let baseFrame = baseFrame ?? baseImageFrame(for: image)
+		let scaledWidth = baseFrame.width * zoomScale
+		let scaledHeight = baseFrame.height * zoomScale
+
+		let maxOffsetX = max(0, (scaledWidth - bounds.width) / 2)
+		let maxOffsetY = max(0, (scaledHeight - bounds.height) / 2)
+
+		let x = max(-maxOffsetX, min(maxOffsetX, offset.x))
+		let y = max(-maxOffsetY, min(maxOffsetY, offset.y))
+		return CGPoint(x: x, y: y)
+	}
+}
+
+private class NonDraggableImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        // No-op to prevent dragging
+    }
 }

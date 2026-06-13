@@ -62,6 +62,8 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 	}
 
 	private var isArticleContentJavascriptEnabled = AppDefaults.shared.isArticleContentJavascriptEnabled
+	    private nonisolated(unsafe) var localEventMonitor: Any?
+	    private var hoverModifierIsDown = false
 
 	override func viewDidLoad() {
 		currentWebViewController = regularWebViewController
@@ -70,7 +72,47 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 				self?.userDefaultsDidChange()
 			}
 		}
+		        
+		        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+		            Task { @MainActor in
+		                guard let self = self else { return }
+		                if !AISettings.shared.hoverTranslationEnabled {
+		                    self.hoverModifierIsDown = false
+		                    return
+		                }
+	                
+	                let modifier = AISettings.shared.hoverModifier
+	                let flags = event.modifierFlags
+		                
+		                var matches = false
+		                switch modifier {
+		                case .control: matches = flags.contains(.control)
+		                case .option: matches = flags.contains(.option)
+		                case .command: matches = flags.contains(.command)
+		                }
+		                
+		                defer { self.hoverModifierIsDown = matches }
+		                guard matches, !self.hoverModifierIsDown else { return }
+		                
+		                if matches {
+		                    guard let window = self.currentWebViewController.webView.window, window.isKeyWindow else { return }
+
+		                    let windowPoint = window.mouseLocationOutsideOfEventStream
+	                    let viewPoint = self.currentWebViewController.webView.convert(windowPoint, from: nil)
+	                    guard self.currentWebViewController.webView.bounds.contains(viewPoint) else { return }
+
+	                    self.currentWebViewController.triggerHoverActionFromHoveredElement()
+	                }
+	            }
+	            return event
+	        }
 	}
+    
+    deinit {
+        if let monitor = localEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
 
 	// MARK: - API
 
@@ -115,11 +157,222 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 		}
 		window.makeFirstResponderUnlessDescendantIsFirstResponder(currentWebViewController.webView)
 	}
+
+    // MARK: - AI
+    func injectAISummary(_ text: String) {
+        currentWebViewController.injectAISummary(text)
+    }
+    
+    func showAISummaryLoading() {
+        currentWebViewController.showAISummaryLoading()
+    }
+
+    func performTitleTranslation() async {
+         guard let webVC = currentWebViewController, let article = webVC.article else { return }
+         let articleID = article.articleID
+         let title = article.title ?? ""
+         print("DEBUG: performTitleTranslation start for \(articleID.prefix(8))")
+         guard !title.isEmpty else { return }
+
+         let targetLang = AISettings.shared.outputLanguage
+
+         var shouldTranslate = AISettings.shared.translationIsRewriteMode
+         if !shouldTranslate {
+             let recognizer = NLLanguageRecognizer()
+             recognizer.processString(title)
+
+             if let dominant = recognizer.dominantLanguage {
+                 let targetIso = isoCode(for: targetLang)
+                 shouldTranslate = !dominant.rawValue.lowercased().hasPrefix(targetIso.lowercased())
+             }
+         }
+
+         guard shouldTranslate else { return }
+
+         do {
+             print("DEBUG: Calling fetchOrTranslateTitle for \(articleID.prefix(8))")
+             // Use centralised fetch/task manager
+             let translated = try await AICacheManager.shared.fetchOrTranslateTitle(articleID: articleID, title: title, targetLang: targetLang)
+             print("DEBUG: fetchOrTranslateTitle returned for \(articleID.prefix(8))")
+
+             // Verify context matches the original request
+             guard webVC.article?.articleID == articleID else {
+                 print("DEBUG: Context mismatch for \(articleID.prefix(8)), aborting injection")
+                 return
+             }
+
+             print("DEBUG: Injecting translated title for \(articleID.prefix(8))")
+             webVC.injectTitleTranslation(translated)
+         } catch {
+             print("Title Translation Error: \(error)")
+         }
+    }
+
+    func performTranslation() async {
+        guard let webVC = currentWebViewController, let article = webVC.article else { return }
+        
+        // Translate Title if enabled (Parallel Task)
+        if AISettings.shared.autoTranslateTitles {
+             Task { await performTitleTranslation() }
+        }
+        
+        let map = await webVC.prepareForTranslation()
+        
+        // Determine which items need translation (not in cache)
+        let cached = AICacheManager.shared.getTranslation(for: article.articleID) ?? [:]
+        let itemsToTranslate = map.filter { cached[$0.key] == nil }
+        
+        // Show Loading for all items to be translated
+        for id in itemsToTranslate.keys {
+             webVC.showTranslationLoading(for: id)
+        }
+        
+        var translatedMap: [String: String] = [:]
+        
+        // Translate in parallel or batches
+        await withTaskGroup(of: (String, String, Error?)?.self) { group in
+            for (id, text) in itemsToTranslate {
+                group.addTask {
+                    do {
+                        let target = await AISettings.shared.outputLanguage
+                        let translation = try await AIService.shared.translate(text: text, targetLanguage: target)
+                        return (id, translation, nil)
+                    } catch {
+                        print("Translation failed for \(id): \(error)")
+                        return (id, "", error)
+                    }
+                }
+            }
+            
+            for await result in group {
+                if let (id, translation, error) = result {
+                    await MainActor.run {
+                        if let error = error {
+                            webVC.showTranslationError(for: id, message: error.localizedDescription)
+                        } else {
+                            webVC.injectTranslation(id: id, text: translation)
+                            translatedMap[id] = translation
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Save results to cache (merge with existing)
+        if !translatedMap.isEmpty {
+            var finalMap = cached
+            finalMap.merge(translatedMap) { (_, new) in new }
+            AICacheManager.shared.saveTranslation(finalMap, for: article.articleID)
+        }
+    }
 }
 
 // MARK: - DetailWebViewControllerDelegate
+import NaturalLanguage
 
 extension DetailViewController: DetailWebViewControllerDelegate {
+    
+    func detailWebViewControllerDidFinishLoad(_ detailWebViewController: DetailWebViewController) {
+        guard AISettings.shared.isEnabled, let article = detailWebViewController.article else { return }
+        
+        let articleID = article.articleID
+        
+        Task { @MainActor in
+            // Inject Hover Listener
+            detailWebViewController.injectHoverListener(keyProperty: AISettings.shared.hoverModifier.jsProperty)
+
+            // 1. Restore Summary Cache first (because it adds content to DOM)
+            if let cachedSummary = AICacheManager.shared.getSummary(for: articleID) {
+                detailWebViewController.injectAISummary(cachedSummary)
+            }
+            
+            // 2. Force re-indexing of IDs. 
+            // This ensures that if Summary was added, it gets IDs 0..N, and body gets N+1..M.
+            // This order is deterministic based on DOM order.
+            await detailWebViewController.ensureStableIDs(force: true)
+            
+            // 3. Restore Translation Cache
+            let cachedTranslations = AICacheManager.shared.getTranslation(for: articleID)
+            if let params = cachedTranslations, !params.isEmpty {
+                for (id, text) in params {
+                    detailWebViewController.injectTranslation(id: id, text: text)
+                }
+            }
+            
+            let cachedTitle = AICacheManager.shared.getTitleTranslation(for: articleID)
+            if let titleText = cachedTitle {
+                print("DEBUG: Restoring Title Cache for \(articleID.prefix(8))")
+                detailWebViewController.injectTitleTranslation(titleText)
+            } else {
+                print("DEBUG: No Title Cache for \(articleID.prefix(8))")
+            }
+            
+            // If fully cached, return
+            if cachedTranslations != nil && (cachedTitle != nil || !AISettings.shared.autoTranslateTitles) {
+                return
+            }
+            
+            // Auto-translate logic (only if no cache)
+            let autoTranslateBody = AISettings.shared.autoTranslate
+            let autoTranslateTitles = AISettings.shared.autoTranslateTitles
+            
+            guard (autoTranslateBody || autoTranslateTitles),
+                  detailWebViewController === currentWebViewController else { return }
+            
+            var didTriggerFullTranslation = false
+
+            if autoTranslateBody && cachedTranslations == nil {
+                if AISettings.shared.translationIsRewriteMode {
+                    await performTranslation()
+                    didTriggerFullTranslation = true
+                } else {
+                    // Use article content (summary or text) for language detection
+                    let textSample = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+                    if !textSample.isEmpty {
+                        // Simple heuristic: Take first 500 chars for detection
+                        let sample = String(textSample.prefix(500))
+                        let recognizer = NLLanguageRecognizer()
+                        recognizer.processString(sample)
+
+                        if let dominantLang = recognizer.dominantLanguage {
+                            let targetLang = AISettings.shared.outputLanguage
+                            let targetIso = isoCode(for: targetLang)
+                            let detectedIso = dominantLang.rawValue
+
+                            print("AI Auto-Translate: Detected \(detectedIso), Target \(targetIso) (\(targetLang))")
+
+                            // Check if detected starts with target (e.g. en-US starts with en)
+                            if !detectedIso.lowercased().hasPrefix(targetIso.lowercased()) {
+                                print("AI Auto-Translate: Triggering translation...")
+                                await performTranslation()
+                                didTriggerFullTranslation = true
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If body translation was not triggered (either disabled or language matched),
+            // check if we need to translate just the title.
+            if !didTriggerFullTranslation && autoTranslateTitles && cachedTitle == nil {
+                 await performTitleTranslation()
+            }
+        }
+    }
+    
+    private func isoCode(for languageName: String) -> String {
+        switch languageName {
+        case "English": return "en"
+        case "Chinese": return "zh"
+        case "Japanese": return "ja"
+        case "French": return "fr"
+        case "German": return "de"
+        case "Spanish": return "es"
+        case "Korean": return "ko"
+        case "Russian": return "ru"
+        default: return "en"
+        }
+    }
 
 	func mouseDidEnter(_ detailWebViewController: DetailWebViewController, link: String) {
 		guard !link.isEmpty, detailWebViewController === currentWebViewController else {
@@ -134,6 +387,41 @@ extension DetailViewController: DetailWebViewControllerDelegate {
 		}
 		statusBarView.mouseoverLink = nil
 	}
+
+    func requestTranslation(id: String, text: String) {
+        guard let webVC = currentWebViewController, let article = webVC.article else { return }
+        let articleID = article.articleID
+        
+        Task { @MainActor in
+            // Check cache
+            var existingMap = AICacheManager.shared.getTranslation(for: articleID) ?? [:]
+            
+            if let cached = existingMap[id] {
+                webVC.injectTranslation(id: id, text: cached)
+                return
+            }
+            
+            // Show Loading State immediately
+            webVC.showTranslationLoading(for: id)
+            
+            // Translate
+            do {
+                print("DEBUG: Hover Translation requested for \(id)")
+                let target = AISettings.shared.outputLanguage
+                let translated = try await AIService.shared.translate(text: text, targetLanguage: target)
+                
+                // Inject
+                webVC.injectTranslation(id: id, text: translated)
+                
+                // Save
+                existingMap[id] = translated
+                AICacheManager.shared.saveTranslation(existingMap, for: articleID)
+            } catch {
+                print("Hover Translation Failed: \(error)")
+                webVC.showTranslationError(for: id, message: error.localizedDescription)
+            }
+        }
+    }
 }
 
 // MARK: - Private

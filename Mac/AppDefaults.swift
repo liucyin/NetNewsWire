@@ -33,25 +33,34 @@ final class AppDefaults: Sendable {
 		static let detailFontSize = "detailFontSize"
 		static let openInBrowserInBackground = "openInBrowserInBackground"
 		static let subscribeToFeedsInDefaultBrowser = "subscribeToFeedsInDefaultBrowser"
-		static let articleTextSize = "articleTextSize"
-		static let refreshInterval = "refreshInterval"
-		static let addFeedAccountID = "addFeedAccountID"
-		static let addFeedFolderName = "addFeedFolderName"
-		static let addFolderAccountID = "addFolderAccountID"
+			static let articleTextSize = "articleTextSize"
+			static let refreshInterval = "refreshInterval"
+			static let refreshOnLaunch = "refreshOnLaunch"
+			static let addFeedAccountID = "addFeedAccountID"
+			static let addFeedFolderName = "addFeedFolderName"
+			static let addFolderAccountID = "addFolderAccountID"
 		static let importOPMLAccountID = "importOPMLAccountID"
 		static let exportOPMLAccountID = "exportOPMLAccountID"
 		static let defaultBrowserID = "defaultBrowserID"
 		static let currentThemeName = "currentThemeName"
-		static let articleContentJavascriptEnabled = "articleContentJavascriptEnabled"
+			static let articleContentJavascriptEnabled = "articleContentJavascriptEnabled"
 
-		// Hidden prefs
-		static let showDebugMenu = "ShowDebugMenu"
-		static let timelineShowsSeparators = "CorreiaSeparators"
-		static let showTitleOnMainWindow = "KafasisTitleMode"
-		static let feedDoubleClickMarkAsRead = "GruberFeedDoubleClickMarkAsRead"
+			static let timelineShowsArticleThumbnails = "timelineShowsArticleThumbnails"
+
+			// AI Keyboard Shortcuts (UserDefaults override layer)
+			static let aiSummaryKeyboardShortcut = "aiSummaryKeyboardShortcut"
+			static let aiTranslateKeyboardShortcut = "aiTranslateKeyboardShortcut"
+
+			// Hidden prefs
+			static let showDebugMenu = "ShowDebugMenu"
+			static let timelineShowsSeparators = "CorreiaSeparators"
+			static let showTitleOnMainWindow = "KafasisTitleMode"
+			static let feedDoubleClickMarkAsRead = "GruberFeedDoubleClickMarkAsRead"
 		static let suppressSyncOnLaunch = "DevroeSuppressSyncOnLaunch"
-		static let webInspectorEnabled = "WebInspectorEnabled"
+	static let webInspectorEnabled = "WebInspectorEnabled"
 		static let webInspectorStartsAttached = "__WebInspectorPageGroupLevel1__.WebKit2InspectorStartsAttached"
+        static let imageViewerFullWindow = "imageViewerFullWindow"
+		static let searchKeyboardShortcut = "searchKeyboardShortcut"
 	}
 
 	private static let smallestFontSizeRawValue = FontSize.small.rawValue
@@ -287,6 +296,15 @@ final class AppDefaults: Sendable {
 		return AppDefaults.bool(for: Key.timelineShowsSeparators)
 	}
 
+	var timelineShowsArticleThumbnails: Bool {
+		get {
+			return AppDefaults.bool(for: Key.timelineShowsArticleThumbnails)
+		}
+		set {
+			AppDefaults.setBool(for: Key.timelineShowsArticleThumbnails, newValue)
+		}
+	}
+
 	var articleTextSize: ArticleTextSize {
 		get {
 			let rawValue = UserDefaults.standard.integer(forKey: Key.articleTextSize)
@@ -310,12 +328,69 @@ final class AppDefaults: Sendable {
 		}
 	}
 
-	var isArticleContentJavascriptEnabled: Bool {
+		var refreshOnLaunch: Bool {
+			get {
+				return AppDefaults.bool(for: Key.refreshOnLaunch)
+			}
+			set {
+				AppDefaults.setBool(for: Key.refreshOnLaunch, newValue)
+			}
+		}
+
+		var aiSummaryKeyboardShortcut: [String: Any]? {
+			get {
+				UserDefaults.standard.dictionary(forKey: Key.aiSummaryKeyboardShortcut)
+			}
+			set {
+				if let newValue {
+					UserDefaults.standard.set(newValue, forKey: Key.aiSummaryKeyboardShortcut)
+				} else {
+					UserDefaults.standard.removeObject(forKey: Key.aiSummaryKeyboardShortcut)
+				}
+			}
+		}
+
+		var aiTranslateKeyboardShortcut: [String: Any]? {
+			get {
+				UserDefaults.standard.dictionary(forKey: Key.aiTranslateKeyboardShortcut)
+			}
+			set {
+				if let newValue {
+					UserDefaults.standard.set(newValue, forKey: Key.aiTranslateKeyboardShortcut)
+				} else {
+					UserDefaults.standard.removeObject(forKey: Key.aiTranslateKeyboardShortcut)
+				}
+			}
+		}
+
+		var isArticleContentJavascriptEnabled: Bool {
+			get {
+				UserDefaults.standard.bool(forKey: Key.articleContentJavascriptEnabled)
+			}
+			set {
+			UserDefaults.standard.set(newValue, forKey: Key.articleContentJavascriptEnabled)
+		}
+	}
+
+    var imageViewerFullWindow: Bool {
+        get {
+            return AppDefaults.bool(for: Key.imageViewerFullWindow)
+        }
+        set {
+            AppDefaults.setBool(for: Key.imageViewerFullWindow, newValue)
+        }
+    }
+
+	var searchKeyboardShortcut: [String: Any]? {
 		get {
-			UserDefaults.standard.bool(forKey: Key.articleContentJavascriptEnabled)
+			UserDefaults.standard.dictionary(forKey: Key.searchKeyboardShortcut)
 		}
 		set {
-			UserDefaults.standard.set(newValue, forKey: Key.articleContentJavascriptEnabled)
+			if let newValue {
+				UserDefaults.standard.set(newValue, forKey: Key.searchKeyboardShortcut)
+			} else {
+				UserDefaults.standard.removeObject(forKey: Key.searchKeyboardShortcut)
+			}
 		}
 	}
 
@@ -334,17 +409,19 @@ final class AppDefaults: Sendable {
  		let showDebugMenu = false
  		#endif
 
-		let defaults: [String: Any] = [
-			Key.sidebarFontSize: FontSize.medium.rawValue,
-			Key.timelineFontSize: FontSize.medium.rawValue,
-			Key.detailFontSize: FontSize.medium.rawValue,
-			Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue,
-			Key.timelineGroupByFeed: false,
-			"NSScrollViewShouldScrollUnderTitlebar": false,
-			Key.refreshInterval: RefreshInterval.every2Hours.rawValue,
-			Key.showDebugMenu: showDebugMenu,
-			Key.currentThemeName: Self.defaultThemeName,
-			Key.articleContentJavascriptEnabled: true
+			let defaults: [String : Any] = [
+				Key.sidebarFontSize: FontSize.medium.rawValue,
+				Key.timelineFontSize: FontSize.medium.rawValue,
+				Key.detailFontSize: FontSize.medium.rawValue,
+				Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue,
+				Key.timelineGroupByFeed: false,
+				"NSScrollViewShouldScrollUnderTitlebar": false,
+				Key.refreshInterval: RefreshInterval.everyHour.rawValue,
+				Key.refreshOnLaunch: true,
+				Key.showDebugMenu: showDebugMenu,
+				Key.currentThemeName: Self.defaultThemeName,
+				Key.articleContentJavascriptEnabled: true,
+				Key.timelineShowsArticleThumbnails: true
 		]
 
 		UserDefaults.standard.register(defaults: defaults)

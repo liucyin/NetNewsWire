@@ -56,6 +56,7 @@
 		843E2F1D2CF2B8D300ED170F /* RSWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 843E2F1C2CF2B8D300ED170F /* RSWeb */; };
 		84719F4C2EE01A1100EEF332 /* Tests/NetNewsWire-iOSTests/ActivityItemSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84719F4B2EE01A1100EEF332 /* Tests/NetNewsWire-iOSTests/ActivityItemSourceTests.swift */; };
 		848E84CD2DB749440023F3BA /* RSCore in Frameworks */ = {isa = PBXBuildFile; productRef = 848E84CC2DB749440023F3BA /* RSCore */; };
+		7080846CE04855DC96B83AD4 /* RSMarkdown in Frameworks */ = {isa = PBXBuildFile; productRef = 88C9339BE7AAAB786EF15F70 /* RSMarkdown */; };
 		848E84CE2DB749440023F3BA /* RSCore in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 848E84CC2DB749440023F3BA /* RSCore */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		848E84D02DB749440023F3BA /* RSCoreResources in Frameworks */ = {isa = PBXBuildFile; productRef = 848E84CF2DB749440023F3BA /* RSCoreResources */; };
 		848E84D22DB7495C0023F3BA /* RSCore in Frameworks */ = {isa = PBXBuildFile; productRef = 848E84D12DB7495C0023F3BA /* RSCore */; };
@@ -649,6 +650,7 @@
 				514C16CE24D2E63F009A3AFA /* Account in Frameworks */,
 				27692BB9F5D9450894A7EDA4 /* ErrorLog in Frameworks */,
 				848E84CD2DB749440023F3BA /* RSCore in Frameworks */,
+				7080846CE04855DC96B83AD4 /* RSMarkdown in Frameworks */,
 				843E2F172CF2B8A700ED170F /* RSWeb in Frameworks */,
 				D1A7E100000000000000A005 /* HTMLMetadata in Frameworks */,
 				D1A7E100000000000000B005 /* ActivityLog in Frameworks */,
@@ -965,6 +967,7 @@
 				D1A7E100000000000000C004 /* Images */,
 				8424B3172DB73D4C0053AA11 /* RSParser */,
 				848E84CC2DB749440023F3BA /* RSCore */,
+				88C9339BE7AAAB786EF15F70 /* RSMarkdown */,
 				848E84CF2DB749440023F3BA /* RSCoreResources */,
 				84EE3F112DB8A088009D3A8D /* RSTree */,
 				84EE43472DB8A441009D3A8D /* RSDatabase */,
@@ -1839,6 +1842,10 @@
 		848E84CC2DB749440023F3BA /* RSCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RSCore;
+		};
+		88C9339BE7AAAB786EF15F70 /* RSMarkdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RSMarkdown;
 		};
 		848E84CF2DB749440023F3BA /* RSCoreResources */ = {
 			isa = XCSwiftPackageProductDependency;

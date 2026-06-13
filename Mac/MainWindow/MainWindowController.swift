@@ -59,6 +59,7 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 	}
 	private var searchSmartFeed: SmartFeed?
 	private var restoreArticleWindowScrollY: CGFloat?
+	// private var aiPopover: NSPopover? // Removed
 
 	// MARK: - NSWindowController
 
@@ -567,6 +568,54 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 	@objc func selectArticleTheme(_ menuItem: NSMenuItem) {
 		ArticleThemesManager.shared.currentThemeName = menuItem.title
 	}
+
+    @objc func aiSummary(_ sender: Any?) {
+		guard let article = oneSelectedArticle else { return }
+		
+		if !AISettings.shared.isEnabled {
+			showAIDisabledAlert()
+			return
+		}
+        
+        let text = article.contentText ?? article.summary ?? article.contentHTML ?? ""
+        
+        // Show loading state
+        detailViewController?.showAISummaryLoading()
+        
+        Task {
+            do {
+                let summary = try await AIService.shared.summarize(text: text)
+                // Cache the result
+                AICacheManager.shared.saveSummary(summary, for: article.articleID)
+                detailViewController?.injectAISummary(summary)
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+        }
+	}
+
+	@objc func aiTranslate(_ sender: Any?) {
+		guard let article = oneSelectedArticle else { return }
+		
+		if !AISettings.shared.isEnabled {
+            showAIDisabledAlert()
+			return
+		}
+
+        // Clear existing translation cache for this article to force regeneration
+        AICacheManager.shared.saveTranslation([:], for: article.articleID)
+        
+        Task {
+            await detailViewController?.performTranslation()
+        }
+	}
+
+    private func showAIDisabledAlert() {
+        let alert = NSAlert()
+        alert.messageText = "AI Disabled"
+        alert.informativeText = "Please enable AI features in Preferences > AI."
+        alert.runModal()
+    }
 }
 
 // MARK: NSWindowDelegate
@@ -799,6 +848,8 @@ extension NSToolbarItem.Identifier {
 	static let share = NSToolbarItem.Identifier("share")
 	static let articleThemeMenu = NSToolbarItem.Identifier("articleThemeMenu")
 	static let cleanUp = NSToolbarItem.Identifier("cleanUp")
+	static let aiSummary = NSToolbarItem.Identifier("aiSummary")
+	static let aiTranslate = NSToolbarItem.Identifier("aiTranslate")
 }
 
 extension MainWindowController: NSToolbarDelegate {
@@ -880,6 +931,16 @@ extension MainWindowController: NSToolbarDelegate {
 			let title = NSLocalizedString("Clean Up", comment: "Clean Up button")
 			return buildToolbarButton(.cleanUp, title, Assets.Images.cleanUp, "cleanUp:")
 
+		case .aiSummary:
+			let title = NSLocalizedString("AI Summary", comment: "AI Summary")
+			let image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "AI Summary") ?? NSImage()
+			return buildToolbarButton(.aiSummary, title, image, "aiSummary:")
+
+		case .aiTranslate:
+			let title = NSLocalizedString("AI Translate", comment: "AI Translate")
+			let image = NSImage(systemSymbolName: "translate", accessibilityDescription: "AI Translate") ?? NSImage()
+			return buildToolbarButton(.aiTranslate, title, image, "aiTranslate:")
+
 		default:
 			break
 		}
@@ -905,7 +966,9 @@ extension MainWindowController: NSToolbarDelegate {
 			.share,
 			.articleThemeMenu,
 			.search,
-			.cleanUp
+			.cleanUp,
+			.aiSummary,
+			.aiTranslate
 		]
 	}
 
@@ -925,6 +988,8 @@ extension MainWindowController: NSToolbarDelegate {
 			.readerView,
 			.share,
 			.openInBrowser,
+			.aiSummary,
+			.aiTranslate,
 			.flexibleSpace,
 			.search
 		]

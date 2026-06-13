@@ -272,20 +272,16 @@ let appName = "NetNewsWire"
 		UNUserNotificationCenter.current().delegate = self
 		UserNotificationManager.shared.start()
 
-		#if DEBUG
-		refreshTimer!.update()
-		ArticleStatusSyncTimer.shared.update()
-		#else
-		if AppDefaults.shared.suppressSyncOnLaunch {
-			refreshTimer!.update()
-			ArticleStatusSyncTimer.shared.update()
-		} else {
-			DispatchQueue.main.async {
-				self.refreshTimer!.timedRefresh(nil)
-				ArticleStatusSyncTimer.shared.timedRefresh(nil)
-			}
-		}
-		#endif
+				refreshTimer!.update()
+				ArticleStatusSyncTimer.shared.update()
+
+				let shouldRefreshOnLaunch = AppDefaults.shared.refreshOnLaunch && !AppDefaults.shared.suppressSyncOnLaunch
+				if shouldRefreshOnLaunch {
+					DispatchQueue.main.async {
+						self.refreshTimer!.timedRefresh(nil)
+						ArticleStatusSyncTimer.shared.timedRefresh(nil)
+					}
+				}
 
 		if !AppDefaults.shared.showDebugMenu {
 			debugMenuItem.menu?.removeItem(debugMenuItem)
